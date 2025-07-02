@@ -1,0 +1,67 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  12
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       volVectorField;
+    object      U;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 1 -1 0 0 0 0];
+
+internalField   uniform (0 0 0);
+
+boundaryField
+{
+    inlet
+    {
+        type            uniformFixedValue;
+        uniformValue    coded;
+
+        name            pulse;
+
+        codeInclude
+        #{
+            #include "mathematicalConstants.H"
+        #};
+
+        code
+        #{
+            // Return a peak velocity of 1.0 m/s instead of 10 m/s
+            return vector
+            (
+                1*(1 - cos(constant::mathematical::twoPi*(x/0.25))), // Changed 5 to 0.5
+                0,
+                0
+            );
+        #};
+    }
+
+    outlet
+    {
+        type            zeroGradient;
+    }
+
+    upperWall
+    {
+        type            noSlip;
+    }
+
+    lowerWall
+    {
+        type            noSlip;
+    }
+
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //

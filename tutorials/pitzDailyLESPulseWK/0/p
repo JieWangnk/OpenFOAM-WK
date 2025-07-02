@@ -1,0 +1,60 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  12
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    object      p;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 2 -2 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    inlet
+    {
+        type            zeroGradient;
+    }
+    outlet
+    {
+        type            modularWKPressure;
+        phi             phi;    // Name of the flux field
+        order           2;      // Finite difference order (1, 2, or 3)
+        R               13330;  // Resistance
+        C               1e-5;   // Compliance
+        Z               0;      // Impedance (set to 0 for a standard 2-element WK model)
+    
+        // Initial historical values for a stable start
+        p0              10666;  // Initial pressure at the outlet [Pa]
+        p_1             10666;  // Pressure at t=-dt [Pa]
+        q_1             0;      // Flow at t=-dt [m3/s]
+        q_2             0;      // Flow at t=-2*dt [m3/s]
+        q_3             0;      // Flow at t=-3*dt [m3/s]
+    
+        value           uniform 10666; // Initial value for the patch
+    }
+    upperWall
+    {
+        type            zeroGradient;
+    }
+
+    lowerWall
+    {
+        type            zeroGradient;
+    }
+
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //
