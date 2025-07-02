@@ -169,7 +169,11 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 - Documentation improvements
 - Additional tutorial cases
 
-## References
+### Related Projects and Articles
 
-1. Westerhof, N., Lankhaar, J. W., & Westerhof, B. E. (2009). The arterial Windkessel. Medical & biological engineering & computing, 47(2), 131-141.
-2. OpenFOAM User Guide: [Boundary Conditions](https://www.openfoam.com/documentation/user-guide/4-boundaries/4.2-boundaries) 
+This implementation was inspired by and builds upon previous work:
+
+- [OpenFOAM-v8-Windkessel-code](https://github.com/EManchester/OpenFOAM-v8-Windkessel-code) by Emily Manchester et al. If you use this implementation or the original v8 version in your research, please cite:
+  > Manchester, E. L., Pirola, S., Salmasi, M. Y., O'Regan, D. P., Athanasiou, T., and Xu, X. Y. (2021). Analysis of Turbulence Effects in a Patient-Specific Aorta with Aortic Valve Stenosis. Cardiovasc. Eng. Tech. 12, 438453. doi:10.1007/s13239-021-00536-9
+
+- [Part 1: Modular Windkessel Boundary Condition in OpenFOAM v12](https://medium.com/@jiewang-share/part-1-modular-windkessel-boundary-condition-in-openfoam-v12-aaaab845923f) - A detailed tutorial on implementing and using the Windkessel boundary condition in OpenFOAM v12.
