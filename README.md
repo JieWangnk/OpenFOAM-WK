@@ -2,6 +2,8 @@
 
 A specialized OpenFOAM boundary condition implementing the three-element (RCR) Windkessel model for cardiovascular flow simulations. This boundary condition is particularly useful for modeling the effects of downstream vasculature in cardiovascular CFD simulations.
 
+> **Current Status**: This implementation is currently tested with the standard pitzDaily tutorial case as a proof of concept. Validation with physiologically relevant arterial test cases is in progress and will be updated soon. Users should expect potential updates and improvements as we validate the boundary condition with more complex cardiovascular geometries.
+
 ## Overview
 
 The Windkessel boundary condition calculates outlet pressure based on flow rate using a lumped parameter model. This implementation provides:
@@ -36,13 +38,15 @@ wmake
 
 ### Boundary Condition Parameters
 
-- `R`: Peripheral resistance [m^-4]
-- `C`: Compliance [m^4 s^2 kg^-1]
-- `Z`: Characteristic impedance [m^-4]
-- `order`: Time discretization order (1-3)
-- `phi`: Name of the flux field (default: "phi")
-- `p0`: Initial pressure value
-- `value`: Initial uniform value
+| Parameter | Description | Units |
+|-----------|-------------|-------|
+| `R` | Peripheral resistance | [m^-4] |
+| `C` | Compliance | [m^4 s^2 kg^-1] |
+| `Z` | Characteristic impedance | [m^-4] |
+| `order` | Time discretization order (1-3) | - |
+| `phi` | Name of the flux field (default: "phi") | - |
+| `p0` | Initial pressure value | [m^2/s^2] |
+| `value` | Initial uniform value | [m^2/s^2] |
 
 ### Example Configuration
 
@@ -143,31 +147,32 @@ Note: When restarting a simulation, the boundary condition automatically reads a
 
 ## Tutorial Case
 
-A tutorial case demonstrating the usage of the Windkessel boundary condition is provided in `tutorials/pitzDailyLESPulseWK/`. This case showcases:
+The current tutorial case (`tutorials/pitzDailyLESPulseWK/`) demonstrates basic functionality using the standard OpenFOAM pitzDaily geometry. This simplified case is provided to help users understand the implementation and usage of the Windkessel boundary condition.
 
-- Basic setup of the Windkessel boundary condition
+### Current Test Case
+- Basic setup using pitzDaily geometry
 - Integration with LES simulation
 - Handling of pulsatile flow conditions
 
-To run the tutorial:
+### Upcoming Validation Cases
+- Patient-specific arterial geometries
+- Physiologically relevant flow conditions
+- Multiple outlet configurations
+- Comparison with clinical data
+
+To run the current tutorial:
 
 ```bash
 cd tutorials/pitzDailyLESPulseWK
 ./Allrun
 ```
 
-## License
+> **Note**: Stay tuned for updates as we add more physiologically relevant test cases and validation results.
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+## References
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit pull requests or open issues for:
-
-- Bug fixes
-- Feature enhancements
-- Documentation improvements
-- Additional tutorial cases
+1. Westerhof, N., Lankhaar, J. W., & Westerhof, B. E. (2009). The arterial Windkessel. Medical & biological engineering & computing, 47(2), 131-141.
+2. OpenFOAM User Guide: [Boundary Conditions](https://www.openfoam.com/documentation/user-guide/4-boundaries/4.2-boundaries)
 
 ### Related Projects and Articles
 
