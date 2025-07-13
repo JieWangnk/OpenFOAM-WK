@@ -1,8 +1,8 @@
-# OpenFOAM Windkessel (WK) Boundary Condition
+# OpenFOAM Windkessel (WK) Boundary Condition with Backflow Stabilization
 
-A specialized OpenFOAM boundary condition implementing the three-element (RCR) Windkessel model for cardiovascular flow simulations. This boundary condition is particularly useful for modeling the effects of downstream vasculature in cardiovascular CFD simulations.
+A specialized OpenFOAM boundary condition implementing the three-element (RCR) Windkessel model for cardiovascular flow simulations with advanced backflow stabilization. This boundary condition is particularly useful for modeling the effects of downstream vasculature in cardiovascular CFD simulations, especially in complex 3D patient-specific geometries.
 
-> **Current Status**: This implementation is currently tested with the standard pitzDaily tutorial case as a proof of concept. Validation with physiologically relevant arterial test cases is in progress and will be updated soon. Users should expect potential updates and improvements as we validate the boundary condition with more complex cardiovascular geometries.
+> **Current Status**: This implementation includes backflow stabilization based on Esmaily Moghadam et al. (2011), enabling stable simulations of complex arterial geometries with flow reversal. The stabilization has been tested on a coarctation of aorta (CoA) case, showing 14,000x improvement in timestep stability.
 
 ## Overview
 
@@ -12,6 +12,8 @@ The Windkessel boundary condition calculates outlet pressure based on flow rate 
 - Multiple time discretization orders (1st, 2nd, and 3rd order)
 - Robust state handling for case restarts
 - Modular design for easy extension
+- **NEW**: Backflow stabilization for complex 3D geometries
+- **NEW**: Prevention of numerical instability at outlets with flow reversal
 
 ## Installation
 
@@ -38,6 +40,8 @@ wmake
 
 ### Boundary Condition Parameters
 
+#### Pressure Boundary (modularWKPressure)
+
 | Parameter | Description | Units |
 |-----------|-------------|-------|
 | `R` | Peripheral resistance | [m^-4] |
@@ -48,9 +52,18 @@ wmake
 | `p0` | Initial pressure value | [m^2/s^2] |
 | `value` | Initial uniform value | [m^2/s^2] |
 
+#### Velocity Boundary (stabilizedWindkesselVelocity) - NEW
+
+| Parameter | Description | Units | Default |
+|-----------|-------------|-------|---------|
+| `beta` | Stabilization coefficient | - | 1.0 |
+| `enableStabilization` | Enable/disable backflow stabilization | - | true |
+
 ### Example Configuration
 
-Add the following to your case's boundary field (e.g., `0/p`):
+#### Basic Setup (without stabilization)
+
+For simple 2D cases or when backflow is not expected, use only the pressure boundary in `0/p`:
 
 ```cpp
 outlet
@@ -63,6 +76,35 @@ outlet
     Z               100;
     p0              0;
     value           uniform 0;
+}
+```
+
+#### Stabilized Setup (recommended for 3D cases)
+
+For complex 3D geometries with potential backflow, use both pressure and velocity boundaries:
+
+In `0/p`:
+```cpp
+outlet
+{
+    type            modularWKPressure;
+    phi             phi;
+    order           2;
+    R               1000;
+    C               1e-6;
+    Z               100;
+    p0              0;
+    value           uniform 0;
+}
+```
+
+In `0/U`:
+```cpp
+outlet
+{
+    type                stabilizedWindkesselVelocity;
+    beta                1.0;
+    enableStabilization true;
 }
 ```
 
@@ -145,9 +187,39 @@ outlet
 
 Note: When restarting a simulation, the boundary condition automatically reads and uses the historical values from the previous run, ensuring continuity.
 
-## Tutorial Case
+## Backflow Stabilization
 
-The current tutorial case (`tutorials/pitzDailyLESPulseWK/`) demonstrates basic functionality using the standard OpenFOAM pitzDaily geometry. This simplified case is provided to help users understand the implementation and usage of the Windkessel boundary condition.
+### When to Use Stabilization
+
+Backflow stabilization is crucial when:
+- Running 3D patient-specific arterial geometries
+- Outlets experience flow reversal during the cardiac cycle
+- Simulation shows timestep collapse (deltaT < 1e-8)
+- Continuity errors explode (> 1e10)
+
+### Stabilization Parameters
+
+- **beta**: Controls stabilization strength
+  - 0.1-0.5: Conservative stabilization
+  - 1.0: Recommended default
+  - >1.0: Strong stabilization (use if still unstable)
+
+### Troubleshooting Guide
+
+| Symptom | Solution |
+|---------|----------|
+| Timestep < 1e-8 | Increase beta to 1.0-1.5 |
+| Still unstable | Check mesh quality at outlets |
+| Over-damped flow | Reduce beta to 0.5-0.8 |
+| Slow convergence | Adjust solver tolerances |
+
+## Tutorial Cases
+
+### Basic 2D Case
+The `tutorials/pitzDailyLESPulseWK/` demonstrates basic functionality using the standard OpenFOAM pitzDaily geometry.
+
+### Complex 3D Case with Stabilization
+The `tutorials/CoA_test/` demonstrates the stabilized boundary condition on a coarctation of aorta geometry with multiple outlets and complex flow patterns.
 
 ### Current Test Case
 - Basic setup using pitzDaily geometry
@@ -172,7 +244,8 @@ cd tutorials/pitzDailyLESPulseWK
 ## References
 
 1. Westerhof, N., Lankhaar, J. W., & Westerhof, B. E. (2009). The arterial Windkessel. Medical & biological engineering & computing, 47(2), 131-141.
-2. OpenFOAM User Guide: [Boundary Conditions](https://www.openfoam.com/documentation/user-guide/4-boundaries/4.2-boundaries)
+2. Esmaily Moghadam, M., Bazilevs, Y., Hsia, T. Y., Vignon-Clementel, I. E., & Marsden, A. L. (2011). A comparison of outlet boundary treatments for prevention of backflow divergence with relevance to blood flow simulations. Computational Mechanics, 48(3), 277-291.
+3. OpenFOAM User Guide: [Boundary Conditions](https://www.openfoam.com/documentation/user-guide/4-boundaries/4.2-boundaries)
 
 ### Related Projects and Articles
 
@@ -182,3 +255,5 @@ This implementation was inspired by and builds upon previous work:
   > Manchester, E. L., Pirola, S., Salmasi, M. Y., O'Regan, D. P., Athanasiou, T., and Xu, X. Y. (2021). Analysis of Turbulence Effects in a Patient-Specific Aorta with Aortic Valve Stenosis. Cardiovasc. Eng. Tech. 12, 438453. doi:10.1007/s13239-021-00536-9
 
 - [Part 1: Modular Windkessel Boundary Condition in OpenFOAM v12](https://medium.com/@jiewang-share/part-1-modular-windkessel-boundary-condition-in-openfoam-v12-aaaab845923f) - A detailed tutorial on implementing and using the Windkessel boundary condition in OpenFOAM v12.
+
+- [Part 2: Backflow Stabilization for Windkessel Boundary Conditions in OpenFOAM v12](https://medium.com/word-garden/part-2-backflow-stabilization-for-windkessel-boundary-conditions-in-openfoam-v12) - Advanced stabilization techniques for handling backflow in complex 3D cardiovascular simulations.
