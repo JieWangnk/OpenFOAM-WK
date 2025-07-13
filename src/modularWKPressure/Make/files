@@ -1,3 +1,4 @@
 modularWKPressureFvPatchScalarField.C
+stabilizedWindkesselVelocityFvPatchVectorField.C
 
 LIB = $(FOAM_USER_LIBBIN)/libmodularWKPressure

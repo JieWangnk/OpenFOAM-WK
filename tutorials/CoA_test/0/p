@@ -1,0 +1,113 @@
+/*--------------------------------*- C++ -*----------------------------------*\\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  12
+     \\/     M anipulation  |
+\\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      p;
+}
+// ************************************************************************* //
+
+dimensions      [0 2 -2 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    // The inlet pressure is standardized here
+    inlet
+    {
+        type            zeroGradient;
+    }
+
+    // The outlets are created dynamically based on the JSON settings
+    outlet1
+    {
+        // OpenFOAM 12 modularWKPressure boundary condition
+        type            modularWKPressure;
+        phi             phi;
+        order           2;
+        R               1000;
+        C               1e-06;
+        Z               100;
+        
+        // Initial historical values for a stable start
+        p0              10666;  // Initial pressure at the outlet [Pa]
+        p_1             10666;  // Pressure at t=-dt [Pa]
+        q_1             0;      // Flow at t=-dt [m3/s]
+        q_2             0;      // Flow at t=-2*dt [m3/s]
+        q_3             0;      // Flow at t=-3*dt [m3/s]
+        
+        value           uniform 0;
+    }
+    outlet2
+    {
+        // OpenFOAM 12 modularWKPressure boundary condition
+        type            modularWKPressure;
+        phi             phi;
+        order           2;
+        R               1000;
+        C               1e-06;
+        Z               100;
+        
+        // Initial historical values for a stable start
+        p0              10666;  // Initial pressure at the outlet [Pa]
+        p_1             10666;  // Pressure at t=-dt [Pa]
+        q_1             0;      // Flow at t=-dt [m3/s]
+        q_2             0;      // Flow at t=-2*dt [m3/s]
+        q_3             0;      // Flow at t=-3*dt [m3/s]
+        
+        value           uniform 0;
+    }
+    outlet3
+    {
+        // OpenFOAM 12 modularWKPressure boundary condition
+        type            modularWKPressure;
+        phi             phi;
+        order           2;
+        R               1000;
+        C               1e-06;
+        Z               100;
+        
+        // Initial historical values for a stable start
+        p0              10666;  // Initial pressure at the outlet [Pa]
+        p_1             10666;  // Pressure at t=-dt [Pa]
+        q_1             0;      // Flow at t=-dt [m3/s]
+        q_2             0;      // Flow at t=-2*dt [m3/s]
+        q_3             0;      // Flow at t=-3*dt [m3/s]
+        
+        value           uniform 0;
+    }
+    outlet4
+    {
+        // OpenFOAM 12 modularWKPressure boundary condition
+        type            modularWKPressure;
+        phi             phi;
+        order           2;
+        R               1000;
+        C               1e-06;
+        Z               100;
+        
+        // Initial historical values for a stable start
+        p0              10666;  // Initial pressure at the outlet [Pa]
+        p_1             10666;  // Pressure at t=-dt [Pa]
+        q_1             0;      // Flow at t=-dt [m3/s]
+        q_2             0;      // Flow at t=-2*dt [m3/s]
+        q_3             0;      // Flow at t=-3*dt [m3/s]
+        
+        value           uniform 0;
+    }
+
+    // The wall condition is standardized here
+    wall_aorta
+    {
+        type            zeroGradient;
+    }
+}
+// ************************************************************************* //
