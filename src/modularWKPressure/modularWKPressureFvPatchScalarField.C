@@ -32,7 +32,7 @@ modularWKPressureFvPatchScalarField::modularWKPressureFvPatchScalarField
     p1_(0.0), // Will be calculated in updateCoeffs
     p0_(readScalar(dict.lookup("p0"))),
     p_1_(dict.lookupOrDefault("p_1", p0_)),
-    p_2_(dict.lookupOrDefault("p_2", p0_)),
+    p_2_(dict.lookupOrDefault("p_2", p_1_)),
     q0_(0.0), // Will be calculated in updateCoeffs
     q_1_(readScalar(dict.lookup("q_1"))),
     q_2_(dict.lookupOrDefault("q_2", q_1_)),

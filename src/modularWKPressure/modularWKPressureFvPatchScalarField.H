@@ -44,8 +44,8 @@ class modularWKPressureFvPatchScalarField
         //- Historical pressure values (p1_ is current, p0_ is t-dt, etc.)
         scalar p1_; // Pressure for the current time step (calculated value)
         scalar p0_; // Pressure from previous time step
-        scalar p_1_; // Pressure from t-2*dt
-        scalar p_2_; // Pressure from t-3*dt
+        scalar p_1_; // Pressure from t-dt
+        scalar p_2_; // Pressure from t-2*dt
 
         //- Historical flow values (q0_ is from previous step, q_1_ is t-2*dt)
         scalar q0_;
