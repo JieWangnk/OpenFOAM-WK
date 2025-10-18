@@ -53,6 +53,9 @@ class modularWKPressureFvPatchScalarField
         scalar q_2_;
         scalar q_3_;
 
+        //- Track last update time to prevent multiple updates per timestep
+        mutable scalar lastUpdateTime_;
+
 
 public:
 

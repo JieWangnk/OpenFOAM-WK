@@ -10,15 +10,18 @@ Class
 
 Description
     A backflow-stabilized velocity boundary condition for windkessel outlets.
-    
-    This boundary condition applies the Esmaily Moghadam et al. stabilization
-    technique for preventing backflow divergence at Neumann boundaries.
-    
-    When backflow occurs (v·n < 0), it applies a stabilization traction:
-    t = βρ(v ⊗ v) · n
-    
-    This term opposes inward flow and prevents the numerical instability
-    that can occur when flow re-enters through an outlet boundary.
+
+    When backflow occurs (v·n < 0), this BC damps the backflow velocity
+    using a beta factor:
+        V_stabilized = (1 - beta) * V_backflow + V_tangential
+
+    Where:
+    - beta = 0.0: No stabilization (full backflow allowed)
+    - beta = 0.5: Reduces backflow by 50%
+    - beta = 0.9: Reduces backflow by 90% (recommended)
+    - beta = 1.0: Completely blocks backflow (smooth, not hard constraint)
+
+    This prevents numerical instability from backflow at outlet boundaries.
 
 \*---------------------------------------------------------------------------*/
 
@@ -36,13 +39,10 @@ class stabilizedWindkesselVelocityFvPatchVectorField
     public zeroGradientFvPatchVectorField
 {
     // Private Data
-    
+
         //- Stabilization coefficient (typically 0.5-1.0)
         scalar beta_;
-        
-        //- Density name
-        word rhoName_;
-        
+
         //- Flag to enable/disable stabilization
         bool enableStabilization_;
 

@@ -36,7 +36,8 @@ modularWKPressureFvPatchScalarField::modularWKPressureFvPatchScalarField
     q0_(0.0), // Will be calculated in updateCoeffs
     q_1_(readScalar(dict.lookup("q_1"))),
     q_2_(dict.lookupOrDefault("q_2", q_1_)),
-    q_3_(dict.lookupOrDefault("q_3", q_2_))
+    q_3_(dict.lookupOrDefault("q_3", q_2_)),
+    lastUpdateTime_(-GREAT)
 {
     // Set the initial pressure value of the patch from p0
     fixedValueFvPatchScalarField::operator==(p0_);
@@ -64,7 +65,8 @@ modularWKPressureFvPatchScalarField::modularWKPressureFvPatchScalarField
     q0_(ptf.q0_),
     q_1_(ptf.q_1_),
     q_2_(ptf.q_2_),
-    q_3_(ptf.q_3_)
+    q_3_(ptf.q_3_),
+    lastUpdateTime_(ptf.lastUpdateTime_)
 {}
 
 modularWKPressureFvPatchScalarField::modularWKPressureFvPatchScalarField
@@ -86,7 +88,8 @@ modularWKPressureFvPatchScalarField::modularWKPressureFvPatchScalarField
     q0_(fvmpsf.q0_),
     q_1_(fvmpsf.q_1_),
     q_2_(fvmpsf.q_2_),
-    q_3_(fvmpsf.q_3_)
+    q_3_(fvmpsf.q_3_),
+    lastUpdateTime_(fvmpsf.lastUpdateTime_)
 {}
 
 
@@ -98,6 +101,20 @@ void modularWKPressureFvPatchScalarField::updateCoeffs()
     {
         return;
     }
+
+    // Get current simulation time
+    const scalar currentTime = db().time().value();
+
+    // Only update once per timestep - prevent oscillations from multiple PISO/PIMPLE iterations
+    if (mag(currentTime - lastUpdateTime_) < SMALL)
+    {
+        // Already updated this timestep - keep pressure fixed during iterations
+        fixedValueFvPatchScalarField::updateCoeffs();
+        return;
+    }
+
+    // Record that we're updating at this timestep
+    lastUpdateTime_ = currentTime;
 
     // --- 1. Get the flux from the previous timestep's result ---
     const surfaceScalarField& phi =

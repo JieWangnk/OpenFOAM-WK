@@ -25,7 +25,6 @@ stabilizedWindkesselVelocityFvPatchVectorField::stabilizedWindkesselVelocityFvPa
 :
     zeroGradientFvPatchVectorField(p, iF, dict),
     beta_(dict.lookupOrDefault<scalar>("beta", 1.0)),
-    rhoName_(dict.lookupOrDefault<word>("rho", "rho")),
     enableStabilization_(dict.lookupOrDefault<bool>("enableStabilization", true))
 {
     if (dict.found("value"))
@@ -52,7 +51,6 @@ stabilizedWindkesselVelocityFvPatchVectorField::stabilizedWindkesselVelocityFvPa
 :
     zeroGradientFvPatchVectorField(ptf, p, iF, mapper),
     beta_(ptf.beta_),
-    rhoName_(ptf.rhoName_),
     enableStabilization_(ptf.enableStabilization_)
 {}
 
@@ -65,7 +63,6 @@ stabilizedWindkesselVelocityFvPatchVectorField::stabilizedWindkesselVelocityFvPa
 :
     zeroGradientFvPatchVectorField(swvf, iF),
     beta_(swvf.beta_),
-    rhoName_(swvf.rhoName_),
     enableStabilization_(swvf.enableStabilization_)
 {}
 
@@ -109,66 +106,31 @@ void stabilizedWindkesselVelocityFvPatchVectorField::evaluate
     
     // Calculate normal velocity component (v·n)
     const scalarField normalVel = velocity & n;
-    
-    // Get density - for incompressible flow, read from available properties dictionary
-    scalar rho = 1000.0; // Default value
-    
-    // Try different dictionary names based on OpenFOAM version/solver
-    const IOdictionary* propsDict = nullptr;
-    if (db().foundObject<IOdictionary>("physicalProperties"))
-    {
-        propsDict = &db().lookupObject<IOdictionary>("physicalProperties");
-    }
-    else if (db().foundObject<IOdictionary>("transportProperties"))
-    {
-        propsDict = &db().lookupObject<IOdictionary>("transportProperties");
-    }
-    
-    if (propsDict && propsDict->found("rho"))
-    {
-        rho = propsDict->lookup<scalar>("rho");
-    }
-    
-    // Apply stabilization only where backflow occurs (v·n < 0)
-    vectorField correction(velocity.size(), vector::zero);
-    
-    forAll(velocity, faceI)
-    {
-        if (normalVel[faceI] < 0.0) // Backflow condition
-        {
-            // Calculate stabilization traction: t = β*ρ*(v ⊗ v)·n
-            // This is equivalent to β*ρ*(v·n)*v for the normal component
-            const vector& v = velocity[faceI];
-            const vector& normal = n[faceI];
-            // Use the constant density from transportProperties
-            
-            // Stabilization term opposes the inward flow
-            // The term β*ρ*(v ⊗ v)·n can be written as β*ρ*(v·n)*v
-            const scalar vn = normalVel[faceI]; // This is negative for backflow
-            correction[faceI] = -beta_ * rho * vn * v;
-            
-            // Apply only the normal component to avoid affecting tangential flow
-            correction[faceI] = (correction[faceI] & normal) * normal;
-        }
-    }
-    
-    // Apply a more conservative stabilization approach
-    // Instead of converting to gradient, apply the correction directly as a velocity modification
-    // with a damping factor to prevent instability
-    
-    const scalar dampingFactor = 0.1; // Increased damping for stronger stabilization
+
+    // Simpler, more robust backflow stabilization approach
+    // Damp the backflow velocity directly based on beta parameter
+
     vectorField stabilizedVelocity = patchInternalField();
-    
-    // Apply correction only for backflow faces, and only to normal component
-    forAll(correction, faceI)
+
+    forAll(stabilizedVelocity, faceI)
     {
-        if (mag(correction[faceI]) > SMALL)
+        const scalar vn = normalVel[faceI];
+
+        if (vn < 0.0) // Backflow detected
         {
-            // Apply damped correction to velocity
-            stabilizedVelocity[faceI] += dampingFactor * correction[faceI];
+            // Reduce backflow by factor (1 - beta)
+            // beta = 0: no stabilization (full backflow allowed)
+            // beta = 1: complete damping (no backflow)
+            // beta = 0.5: reduce backflow by 50%
+
+            const vector& normal = n[faceI];
+            const vector tangential = stabilizedVelocity[faceI] - vn * normal;
+
+            // Apply damping only to normal component, preserve tangential
+            stabilizedVelocity[faceI] = (1.0 - beta_) * vn * normal + tangential;
         }
     }
-    
+
     // Set the final field value
     fvPatchField<vector>::operator=(stabilizedVelocity);
 
@@ -201,10 +163,9 @@ stabilizedWindkesselVelocityFvPatchVectorField::valueBoundaryCoeffs
 void stabilizedWindkesselVelocityFvPatchVectorField::write(Ostream& os) const
 {
     zeroGradientFvPatchVectorField::write(os);
-    
+
     os.writeKeyword("beta") << beta_ << token::END_STATEMENT << nl;
-    os.writeKeyword("rho") << rhoName_ << token::END_STATEMENT << nl;
-    os.writeKeyword("enableStabilization") << enableStabilization_ 
+    os.writeKeyword("enableStabilization") << enableStabilization_
         << token::END_STATEMENT << nl;
 }
 
