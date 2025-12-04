@@ -10,15 +10,29 @@ Class
 
 Description
     A backflow-stabilized velocity boundary condition for windkessel outlets.
-    
-    This boundary condition applies the Esmaily Moghadam et al. stabilization
-    technique for preventing backflow divergence at Neumann boundaries.
-    
-    When backflow occurs (v·n < 0), it applies a stabilization traction:
-    t = βρ(v ⊗ v) · n
-    
-    This term opposes inward flow and prevents the numerical instability
-    that can occur when flow re-enters through an outlet boundary.
+
+    Supports three stabilization methods:
+
+    1. Simple damping (stabilizationType = "simple"):
+        V_stabilized = (1 - beta) * V_backflow + V_tangential
+        - Fast, intuitive
+        - beta = 0.9 recommended
+
+    2. Flux-based FVM stabilization (stabilizationType = "fluxBased"):
+        Uses face flux (phi) for true finite volume detection
+        - Native FVM approach, uses surfaceScalarField phi
+        - Applies momentum flux correction during backflow
+        - beta = 0.5-1.0 recommended
+        - Most FVM-consistent method
+
+    3. Traction-based (stabilizationType = "traction", from Moghadam et al. 2011):
+        Adds convective traction: -beta*rho*(v·n)⁻*v
+        - Physics-based approach adapted for FVM
+        - Proven in patient-specific cardiovascular cases
+        - beta = 0.2-0.5 recommended
+
+    The fluxBased method is recommended for FVM solvers as it directly
+    uses the computed face fluxes, providing the most consistent treatment.
 
 \*---------------------------------------------------------------------------*/
 
@@ -36,15 +50,24 @@ class stabilizedWindkesselVelocityFvPatchVectorField
     public zeroGradientFvPatchVectorField
 {
     // Private Data
-    
-        //- Stabilization coefficient (typically 0.5-1.0)
+
+        //- Stabilization coefficient
+        //  Simple method: 0.9 recommended
+        //  VMS method: 0.2-0.5 recommended
         scalar beta_;
-        
-        //- Density name
-        word rhoName_;
-        
+
         //- Flag to enable/disable stabilization
         bool enableStabilization_;
+
+        //- Stabilization type: "simple", "fluxBased", or "traction"
+        //  simple: Direct velocity damping
+        //  fluxBased: True FVM method using face flux (phi)
+        //  traction: Traction-based method (adapted from Esmaily-Moghadam 2011)
+        word stabilizationType_;
+
+        //- Damping factor for stabilization methods (0.0-1.0)
+        //  Controls how much of the stabilization term is applied
+        scalar dampingFactor_;
 
 public:
 
