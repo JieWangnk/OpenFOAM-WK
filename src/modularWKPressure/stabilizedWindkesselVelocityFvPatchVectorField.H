@@ -11,28 +11,48 @@ Class
 Description
     A backflow-stabilized velocity boundary condition for windkessel outlets.
 
-    Supports three stabilization methods:
+    Inherits from directionMixedFvPatchVectorField to provide:
+    - Proper implicit matrix treatment for PIMPLE algorithm convergence
+    - Directional control: only tangential velocity is damped during backflow
+    - Normal velocity responds freely to pressure (Windkessel compatibility)
 
-    1. Simple damping (stabilizationType = "simple"):
-        V_stabilized = (1 - beta) * V_backflow + V_tangential
-        - Fast, intuitive
-        - beta = 0.9 recommended
+    This approach is physically motivated for pressure-driven boundaries:
+    - The pressure BC (Windkessel) should drive the normal velocity
+    - Only tangential backflow (vortices, recirculation) should be suppressed
 
-    2. Flux-based FVM stabilization (stabilizationType = "fluxBased"):
-        Uses face flux (phi) for true finite volume detection
-        - Native FVM approach, uses surfaceScalarField phi
-        - Applies momentum flux correction during backflow
-        - beta = 0.5-1.0 recommended
-        - Most FVM-consistent method
+    Behavior:
+    - Outflow (phi >= 0): zeroGradient for all velocity components
+    - Inflow/backflow (phi < 0):
+        * Normal component: controlled by betaN (0=free, 1=clamped)
+        * Tangential components: controlled by betaT (0=free, 1=clamped)
 
-    3. Traction-based (stabilizationType = "traction", from Moghadam et al. 2011):
-        Adds convective traction: -beta*rho*(v·n)⁻*v
-        - Physics-based approach adapted for FVM
-        - Proven in patient-specific cardiovascular cases
-        - beta = 0.2-0.5 recommended
+    Usage:
+    \verbatim
+    outlet
+    {
+        type                  stabilizedWindkesselVelocity;
+        phi                   phi;
+        betaT                 0.2;      // Tangential damping (0-1)
+        betaN                 0.0;      // Normal damping (0-1)
+        enableStabilization   true;
+        dampingFactor         1.0;      // Additional damping multiplier
+        value                 uniform (0 0 0);
+    }
+    \endverbatim
 
-    The fluxBased method is recommended for FVM solvers as it directly
-    uses the computed face fluxes, providing the most consistent treatment.
+    Parameters:
+    - phi: Name of flux field (default: "phi")
+    - betaT: Tangential stabilization coefficient (0-1, default: 0.2)
+      Controls damping of tangential backflow (vortices, recirculation)
+    - betaN: Normal stabilization coefficient (0-1, default: 0.0)
+      Controls damping of normal backflow (use 0 for Windkessel compatibility)
+    - beta: Legacy parameter - if specified alone, sets betaT=beta, betaN=0
+    - enableStabilization: Toggle stabilization (default: true)
+    - dampingFactor: Additional damping multiplier (default: 1.0)
+
+See also
+    Foam::directionMixedFvPatchVectorField
+    Foam::pressureInletOutletVelocityFvPatchVectorField
 
 \*---------------------------------------------------------------------------*/
 
@@ -40,34 +60,43 @@ Description
 #define stabilizedWindkesselVelocityFvPatchVectorField_H
 
 #include "fvPatchFields.H"
-#include "zeroGradientFvPatchFields.H"
+#include "directionMixedFvPatchFields.H"
 
 namespace Foam
 {
 
 class stabilizedWindkesselVelocityFvPatchVectorField
 :
-    public zeroGradientFvPatchVectorField
+    public directionMixedFvPatchVectorField
 {
     // Private Data
 
-        //- Stabilization coefficient
-        //  Simple method: 0.9 recommended
-        //  VMS method: 0.2-0.5 recommended
-        scalar beta_;
+        //- Name of flux field
+        word phiName_;
+
+        //- Tangential stabilization coefficient (0-1)
+        //  Controls how much tangential backflow is suppressed
+        //  0 = no tangential stabilization (pure zeroGradient)
+        //  1 = full suppression (tangential velocity -> 0 for backflow)
+        scalar betaT_;
+
+        //- Normal stabilization coefficient (0-1)
+        //  Controls how much normal backflow is suppressed
+        //  0 = no normal stabilization (Windkessel-compatible, default)
+        //  1 = full suppression (normal velocity -> 0 for backflow)
+        //  Note: betaN > 0 may interfere with Windkessel pressure coupling
+        scalar betaN_;
 
         //- Flag to enable/disable stabilization
         bool enableStabilization_;
 
-        //- Stabilization type: "simple", "fluxBased", or "traction"
-        //  simple: Direct velocity damping
-        //  fluxBased: True FVM method using face flux (phi)
-        //  traction: Traction-based method (adapted from Esmaily-Moghadam 2011)
-        word stabilizationType_;
-
-        //- Damping factor for stabilization methods (0.0-1.0)
-        //  Controls how much of the stabilization term is applied
+        //- Additional damping factor (0-1)
+        //  Effective damping = beta * dampingFactor
         scalar dampingFactor_;
+
+        //- Fluid density (for future extensions)
+        scalar rho_;
+
 
 public:
 
@@ -77,7 +106,7 @@ public:
 
     // Constructors
 
-        //- Construct from patch and internal field and dictionary
+        //- Construct from patch, internal field and dictionary
         stabilizedWindkesselVelocityFvPatchVectorField
         (
             const fvPatch&,
@@ -85,21 +114,34 @@ public:
             const dictionary&
         );
 
-        //- Construct by mapping
+        //- Construct by mapping given field onto a new patch
         stabilizedWindkesselVelocityFvPatchVectorField
         (
             const stabilizedWindkesselVelocityFvPatchVectorField&,
             const fvPatch&,
             const DimensionedField<vector, volMesh>&,
-            const fvPatchFieldMapper&
+            const fieldMapper&
         );
 
-        //- Construct as copy
+        //- Construct as copy setting internal field reference
         stabilizedWindkesselVelocityFvPatchVectorField
         (
             const stabilizedWindkesselVelocityFvPatchVectorField&,
             const DimensionedField<vector, volMesh>&
         );
+
+        //- Construct and return a clone setting internal field reference
+        virtual tmp<fvPatchField<vector>> clone
+        (
+            const DimensionedField<vector, volMesh>& iF
+        ) const
+        {
+            return tmp<fvPatchField<vector>>
+            (
+                new stabilizedWindkesselVelocityFvPatchVectorField(*this, iF)
+            );
+        }
+
 
     //- Destructor
     virtual ~stabilizedWindkesselVelocityFvPatchVectorField() = default;
@@ -107,32 +149,13 @@ public:
 
     // Member Functions
 
-        //- Update the coefficients
+        //- Update the coefficients associated with the patch field
         virtual void updateCoeffs();
-        
-        //- Evaluate the patch field
-        virtual void evaluate
-        (
-            const Pstream::commsTypes commsType = Pstream::commsTypes::blocking
-        );
-
-        //- Return the matrix diagonal coefficients corresponding to the
-        //  evaluation of the value of this patchField with given weights
-        virtual tmp<Field<vector>> valueInternalCoeffs
-        (
-            const tmp<scalarField>&
-        ) const;
-
-        //- Return the matrix source coefficients corresponding to the
-        //  evaluation of the value of this patchField with given weights
-        virtual tmp<Field<vector>> valueBoundaryCoeffs
-        (
-            const tmp<scalarField>&
-        ) const;
 
         //- Write
         virtual void write(Ostream&) const;
 };
+
 
 } // End namespace Foam
 
