@@ -26,7 +26,10 @@ Description
         rᵢ    = residues [Pa·s/m³]
         pᵢ    = poles [rad/s], must be negative for stability
         zᵢ(t) = state variables (recursive convolution states)
-        N     = order (typically 4-6, recommended 4)
+        N     = nPoles (number of pole-residue pairs, typically 4-6)
+
+    Note: The parameter "nPoles" specifies the number of pole-residue terms.
+    For backward compatibility, "order" is accepted as an alias.
 
     Coupling modes:
     - "explicit" (default): Uses flux from previous timestep (lagged coupling)
@@ -76,8 +79,9 @@ class vectorFittingImpedanceFvPatchScalarField
         //- Coupling mode: "explicit" (default) or "implicit"
         word couplingMode_;
 
-        //- Vector fitting order (number of poles, typically 4-6)
-        label order_;
+        //- Number of poles (pole-residue pairs), typically 4-6
+        //  Note: Distinct from BDF "order" used in modularWKPressure
+        label nPoles_;
 
         //- Residues rᵢ [Pa/m³] (N values) - DYNAMIC units
         //  Can be positive or negative
@@ -105,6 +109,11 @@ class vectorFittingImpedanceFvPatchScalarField
         //  Used to convert dynamic → kinematic for incompressible solver
         //  For compressible: set rho = 1.0 (no conversion)
         scalar rho_;
+
+        //- Impedance parameter units: "dynamic" (Pa-based) or "kinematic" (m²/s²-based)
+        //  - "dynamic" (default): parameters in Pa·s/m³, internally convert to kinematic
+        //  - "kinematic": parameters already in OpenFOAM kinematic units, no conversion
+        word impedanceUnits_;
 
         //- Historical flow values (minimal history needed)
         scalar q0_;      // Current timestep flow rate [m³/s]

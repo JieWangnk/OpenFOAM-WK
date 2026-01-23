@@ -94,9 +94,6 @@ class stabilizedWindkesselVelocityFvPatchVectorField
         //  Effective damping = beta * dampingFactor
         scalar dampingFactor_;
 
-        //- Fluid density (for future extensions)
-        scalar rho_;
-
 
 public:
 

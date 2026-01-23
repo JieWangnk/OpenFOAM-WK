@@ -13,10 +13,10 @@ Description
     implicit coupling for enhanced stability and performance.
 
     ALL UNITS ARE KINEMATIC (consistent with OpenFOAM incompressible solvers):
-    - Pressure: m²/s² (kinematic) - same as OpenFOAM p field
-    - Resistance R, Z: s/m (kinematic) = Pa·s/m³ / rho
-    - Compliance C: m (kinematic) = m³/Pa * rho
-    - Flow rate Q: m³/s (unchanged)
+    - Pressure p: [m²/s²] (kinematic) - same as OpenFOAM p field
+    - Resistance R, Z: [m⁻¹·s⁻¹] (kinematic) = [Pa·s/m³] / ρ
+    - Compliance C: [m·s²] (kinematic) = [m³/Pa] × ρ
+    - Flow rate Q: [m³/s] (unchanged)
 
     User provides rho for reference/documentation only - no internal conversion.
 
@@ -37,10 +37,10 @@ Description
             couplingMode    implicit;
             order           3;
             // Windkessel parameters (KINEMATIC units)
-            // Convert from dynamic: R_kin = R_dyn/rho, C_kin = C_dyn*rho
-            R               268765.33;      // s/m (= 2.85e8 Pa·s/m³ / 1060)
-            C               3.72e-6;        // m (= 3.51e-9 m³/Pa * 1060)
-            Z               268936.63;      // s/m (= 2.85e8 Pa·s/m³ / 1060)
+            // Convert from dynamic: R_kin = R_dyn/ρ, C_kin = C_dyn×ρ
+            R               268765.33;      // [m⁻¹·s⁻¹] (= 2.85e8 Pa·s/m³ / 1060)
+            C               3.72e-6;        // [m·s²] (= 3.51e-9 m³/Pa × 1060)
+            Z               268936.63;      // [m⁻¹·s⁻¹] (= 2.85e8 Pa·s/m³ / 1060)
             // Initial/reference pressure [m²/s²] (kinematic)
             p0              12.577;         // = 13332 Pa / 1060
             // State variables
@@ -51,6 +51,21 @@ Description
             // Initial field value (kinematic)
             value           uniform 12.577;
         }
+
+    Restart behavior:
+        - State variables (p0, p_1, p_2, q_1, q_2, q_3) are written to time directories
+        - On restart, these values are read to maintain Windkessel ODE continuity
+        - WARNING: Restart with different domain decomposition may cause inconsistent
+          state across processors. For clean restart after re-decomposition:
+          1. Use reconstructPar to merge fields
+          2. Delete processor* directories
+          3. Re-decompose with decomposePar
+          4. Or manually set state variables to steady-state values in 0/p
+
+    Parallel execution:
+        - Uses gSum() for global flux summation across all processors
+        - All processors compute identical Windkessel pressure
+        - Safe for any decomposition method (scotch, simple, hierarchical)
 
 \*---------------------------------------------------------------------------*/
 
@@ -81,9 +96,9 @@ class modularWKPressureFvPatchScalarField
         word couplingMode_;
 
         //- Windkessel parameters (KINEMATIC units - no conversion needed)
-        //  R [s/m] = resistance (kinematic)
-        //  C [m] = compliance (kinematic)
-        //  Z [s/m] = proximal/characteristic impedance (kinematic)
+        //  R [m⁻¹·s⁻¹] = resistance (kinematic)
+        //  C [m·s²] = compliance (kinematic)
+        //  Z [m⁻¹·s⁻¹] = proximal/characteristic impedance (kinematic)
         scalar R_;
         scalar C_;
         scalar Z_;
@@ -134,12 +149,33 @@ public:
             const fvPatchFieldMapper&
         );
 
-        //- Construct as copy
+        //- Construct as copy setting internal field reference
         modularWKPressureFvPatchScalarField
         (
             const modularWKPressureFvPatchScalarField&,
             const DimensionedField<scalar, volMesh>&
         );
+
+        //- Construct and return a clone
+        virtual tmp<fvPatchScalarField> clone() const
+        {
+            return tmp<fvPatchScalarField>
+            (
+                new modularWKPressureFvPatchScalarField(*this, internalField())
+            );
+        }
+
+        //- Construct and return a clone setting internal field reference
+        virtual tmp<fvPatchScalarField> clone
+        (
+            const DimensionedField<scalar, volMesh>& iF
+        ) const
+        {
+            return tmp<fvPatchScalarField>
+            (
+                new modularWKPressureFvPatchScalarField(*this, iF)
+            );
+        }
 
     //- Destructor
     virtual ~modularWKPressureFvPatchScalarField() = default;

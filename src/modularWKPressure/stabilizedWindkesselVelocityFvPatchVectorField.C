@@ -50,8 +50,7 @@ stabilizedWindkesselVelocityFvPatchVectorField
     ),
     betaN_(dict.lookupOrDefault<scalar>("betaN", 0.0)),
     enableStabilization_(dict.lookupOrDefault<bool>("enableStabilization", true)),
-    dampingFactor_(dict.lookupOrDefault<scalar>("dampingFactor", 1.0)),
-    rho_(dict.lookupOrDefault<scalar>("rho", 1060.0))
+    dampingFactor_(dict.lookupOrDefault<scalar>("dampingFactor", 1.0))
 {
     // Set initial field value
     fvPatchVectorField::operator=
@@ -68,7 +67,7 @@ stabilizedWindkesselVelocityFvPatchVectorField
 
     // valueFraction: tensor field controlling directional behavior
     // Will be updated in updateCoeffs() based on phi
-    valueFraction() = Zero;
+    valueFraction() = symmTensor::zero;
 }
 
 
@@ -86,8 +85,7 @@ stabilizedWindkesselVelocityFvPatchVectorField
     betaT_(ptf.betaT_),
     betaN_(ptf.betaN_),
     enableStabilization_(ptf.enableStabilization_),
-    dampingFactor_(ptf.dampingFactor_),
-    rho_(ptf.rho_)
+    dampingFactor_(ptf.dampingFactor_)
 {}
 
 
@@ -103,8 +101,7 @@ stabilizedWindkesselVelocityFvPatchVectorField
     betaT_(swvf.betaT_),
     betaN_(swvf.betaN_),
     enableStabilization_(swvf.enableStabilization_),
-    dampingFactor_(swvf.dampingFactor_),
-    rho_(swvf.rho_)
+    dampingFactor_(swvf.dampingFactor_)
 {}
 
 
@@ -117,6 +114,18 @@ void Foam::stabilizedWindkesselVelocityFvPatchVectorField::updateCoeffs()
         return;
     }
 
+    // Check for flux field existence
+    if (!db().foundObject<surfaceScalarField>(phiName_))
+    {
+        FatalErrorInFunction
+            << "Flux field '" << phiName_ << "' not found in database." << nl
+            << "The stabilizedWindkesselVelocity BC requires a flux field to "
+            << "detect backflow and apply directional stabilization." << nl
+            << "Ensure you are using an incompressible solver (e.g., foamRun "
+            << "with pimpleFoam) that creates the phi field."
+            << exit(FatalError);
+    }
+
     // Get flux field
     const fvsPatchField<scalar>& phip =
         patch().lookupPatchField<surfaceScalarField, scalar>(phiName_);
@@ -125,7 +134,7 @@ void Foam::stabilizedWindkesselVelocityFvPatchVectorField::updateCoeffs()
     {
         // No stabilization: pure zeroGradient behavior
         // valueFraction = 0 means use gradient (which is zero)
-        valueFraction() = Zero;
+        valueFraction() = symmTensor::zero;
     }
     else
     {
@@ -145,16 +154,20 @@ void Foam::stabilizedWindkesselVelocityFvPatchVectorField::updateCoeffs()
         // This is matrix-coupled at each PIMPLE outer iteration for proper p-U coupling
 
         // Clamp effective betas to [0,1] for safety
-        const scalar effBetaT = min(max(betaT_ * dampingFactor_, 0.0), 1.0);
-        const scalar effBetaN = min(max(betaN_ * dampingFactor_, 0.0), 1.0);
+        const scalar effBetaT = min(max(betaT_ * dampingFactor_, scalar(0)), scalar(1));
+        const scalar effBetaN = min(max(betaN_ * dampingFactor_, scalar(0)), scalar(1));
 
-        // Backflow mask: 1 if phi<0 (backflow), 0 otherwise
-        const scalarField backflowMask(pos0(-phip));
+        // Backflow mask: 1 if phi < -SMALL (backflow), 0 otherwise
+        // Using SMALL margin to avoid on/off chattering near zero flux
+        const scalarField backflowMask(pos0(-phip - SMALL));
 
         // Normal vector field and projection tensors
-        const vectorField n = patch().nf();
-        const symmTensorField normalProj = sqr(n);        // n⊗n
-        const symmTensorField tangProj = I - normalProj;  // I - n⊗n
+        const vectorField n(patch().nf());
+        const symmTensorField normalProj(sqr(n));                    // n⊗n
+
+        // Tangential projection: I - n⊗n
+        const symmTensor Isym(symmTensor::I);
+        const symmTensorField tangProj(Isym - normalProj);
 
         // Combined valueFraction for two-parameter control
         valueFraction() = backflowMask * (effBetaN * normalProj + effBetaT * tangProj);
@@ -181,7 +194,6 @@ void Foam::stabilizedWindkesselVelocityFvPatchVectorField::write(Ostream& os) co
 
     writeEntry(os, "enableStabilization", enableStabilization_);
     writeEntry(os, "dampingFactor", dampingFactor_);
-    writeEntry(os, "rho", rho_);
     writeEntry(os, "value", *this);
 }
 

@@ -27,13 +27,20 @@ vectorFittingImpedanceFvPatchScalarField::vectorFittingImpedanceFvPatchScalarFie
     phiName_(dict.lookupOrDefault<word>("phi", "phi")),
     UName_(dict.lookupOrDefault<word>("U", "U")),
     couplingMode_(dict.lookupOrDefault<word>("couplingMode", "explicit")),
-    order_(readLabel(dict.lookup("order"))),
-    residues_(order_, 0.0),
-    poles_(order_, 0.0),
+    // Accept both "nPoles" (preferred) and "order" (backward compatible)
+    nPoles_
+    (
+        dict.found("nPoles")
+            ? readLabel(dict.lookup("nPoles"))
+            : readLabel(dict.lookup("order"))
+    ),
+    residues_(nPoles_, 0.0),
+    poles_(nPoles_, 0.0),
     directTerm_(readScalar(dict.lookup("directTerm"))),
-    stateVariables_(order_, 0.0),
-    stateVariables_old_(order_, 0.0),
+    stateVariables_(nPoles_, 0.0),
+    stateVariables_old_(nPoles_, 0.0),
     rho_(dict.lookupOrDefault<scalar>("rho", 1060.0)),
+    impedanceUnits_(dict.lookupOrDefault<word>("impedanceUnits", "dynamic")),
     q0_(0.0),
     q_1_(dict.lookupOrDefault<scalar>("q_1", 0.0)),
     lastUpdateTime_(-GREAT),
@@ -48,23 +55,34 @@ vectorFittingImpedanceFvPatchScalarField::vectorFittingImpedanceFvPatchScalarFie
             << exit(FatalError);
     }
 
+    // Validate impedance units
+    if (impedanceUnits_ != "dynamic" && impedanceUnits_ != "kinematic")
+    {
+        FatalErrorInFunction
+            << "impedanceUnits must be 'dynamic' (Pa-based) or 'kinematic' "
+            << "(m²/s²-based), not '" << impedanceUnits_ << "'" << nl
+            << "  dynamic: directTerm [Pa·s/m³], residues [Pa/m³]" << nl
+            << "  kinematic: directTerm [s/m], residues [1/m]"
+            << exit(FatalError);
+    }
+
     // Read poles
     dict.lookup("poles") >> poles_;
-    if (poles_.size() != order_)
+    if (poles_.size() != nPoles_)
     {
         FatalErrorInFunction
             << "poles list size (" << poles_.size()
-            << ") must equal order (" << order_ << ")"
+            << ") must equal nPoles (" << nPoles_ << ")"
             << exit(FatalError);
     }
 
     // Read residues
     dict.lookup("residues") >> residues_;
-    if (residues_.size() != order_)
+    if (residues_.size() != nPoles_)
     {
         FatalErrorInFunction
             << "residues list size (" << residues_.size()
-            << ") must equal order (" << order_ << ")"
+            << ") must equal nPoles (" << nPoles_ << ")"
             << exit(FatalError);
     }
 
@@ -75,12 +93,12 @@ vectorFittingImpedanceFvPatchScalarField::vectorFittingImpedanceFvPatchScalarFie
     if (dict.found("stateVariables"))
     {
         dict.lookup("stateVariables") >> stateVariables_;
-        if (stateVariables_.size() != order_)
+        if (stateVariables_.size() != nPoles_)
         {
             WarningInFunction
                 << "stateVariables list size mismatch, reinitializing to zero"
                 << endl;
-            stateVariables_ = scalarList(order_, 0.0);
+            stateVariables_ = scalarList(nPoles_, 0.0);
         }
     }
 
@@ -112,13 +130,14 @@ vectorFittingImpedanceFvPatchScalarField::vectorFittingImpedanceFvPatchScalarFie
     phiName_(ptf.phiName_),
     UName_(ptf.UName_),
     couplingMode_(ptf.couplingMode_),
-    order_(ptf.order_),
+    nPoles_(ptf.nPoles_),
     residues_(ptf.residues_),
     poles_(ptf.poles_),
     directTerm_(ptf.directTerm_),
     stateVariables_(ptf.stateVariables_),
     stateVariables_old_(ptf.stateVariables_old_),
     rho_(ptf.rho_),
+    impedanceUnits_(ptf.impedanceUnits_),
     q0_(ptf.q0_),
     q_1_(ptf.q_1_),
     lastUpdateTime_(ptf.lastUpdateTime_),
@@ -136,13 +155,14 @@ vectorFittingImpedanceFvPatchScalarField::vectorFittingImpedanceFvPatchScalarFie
     phiName_(vfipsf.phiName_),
     UName_(vfipsf.UName_),
     couplingMode_(vfipsf.couplingMode_),
-    order_(vfipsf.order_),
+    nPoles_(vfipsf.nPoles_),
     residues_(vfipsf.residues_),
     poles_(vfipsf.poles_),
     directTerm_(vfipsf.directTerm_),
     stateVariables_(vfipsf.stateVariables_),
     stateVariables_old_(vfipsf.stateVariables_old_),
     rho_(vfipsf.rho_),
+    impedanceUnits_(vfipsf.impedanceUnits_),
     q0_(vfipsf.q0_),
     q_1_(vfipsf.q_1_),
     lastUpdateTime_(vfipsf.lastUpdateTime_),
@@ -201,11 +221,23 @@ void vectorFittingImpedanceFvPatchScalarField::updateCoeffs()
     lastUpdateTime_ = currentTime;
 
     // --- 1. Get the flux from the previous timestep's result ---
+    if (!db().foundObject<surfaceScalarField>(phiName_))
+    {
+        FatalErrorInFunction
+            << "Flux field '" << phiName_ << "' not found in database." << nl
+            << "The vectorFittingImpedance BC requires a flux field to compute "
+            << "the outlet flow rate Q for the impedance model." << nl
+            << "Ensure you are using an incompressible solver (e.g., foamRun "
+            << "with pimpleFoam) that creates the phi field."
+            << exit(FatalError);
+    }
+
     const surfaceScalarField& phi =
         db().lookupObject<surfaceScalarField>(phiName_);
 
     // Sum the flux over the patch to get the flow rate Q [m³/s]
-    q0_ = sum(phi.boundaryField()[this->patch().index()]);
+    // Use gSum for parallel correctness (global sum across all processors)
+    q0_ = gSum(phi.boundaryField()[this->patch().index()]);
 
     // --- 2. Get timestep ---
     const scalar dt = db().time().deltaTValue();
@@ -258,9 +290,18 @@ void vectorFittingImpedanceFvPatchScalarField::updateCoeffs()
     }
 
     // --- 5. Set the boundary condition value for this timestep ---
-    //  Convert dynamic pressure → kinematic pressure for incompressible solver
-    //  P_dynamic [Pa] → p_kinematic [m²/s²] = P/ρ
-    this->operator==(P / rho_);
+    if (impedanceUnits_ == "kinematic")
+    {
+        // Parameters already in kinematic units - no conversion needed
+        // P is already in [m²/s²]
+        this->operator==(P);
+    }
+    else
+    {
+        // Convert dynamic pressure → kinematic pressure for incompressible solver
+        // P_dynamic [Pa] → p_kinematic [m²/s²] = P/ρ
+        this->operator==(P / rho_);
+    }
 
     // --- 6. Update historical values for the next timestep ---
     stateVariables_old_ = stateVariables_;
@@ -279,7 +320,6 @@ scalar vectorFittingImpedanceFvPatchScalarField::calculateEffectiveImpedance() c
     //   P = d·Q + Σᵢ zᵢ
     //   zᵢⁿ⁺¹ = exp(pᵢ·Δt)·zᵢⁿ + rᵢ·Qⁿ⁺¹·[exp(pᵢ·Δt)-1]/pᵢ
     //   ∂P/∂Q = d + Σᵢ rᵢ·[exp(pᵢ·Δt)-1]/pᵢ
-    //         = d + Σᵢ rᵢ·Δt/(1 - exp(pᵢ·Δt))  (alternate form)
     //
     // For incompressible (kinematic): Z_eff_kin = Z_eff_dyn / ρ
     // Units: [Pa·s/m³]/[kg/m³] = [1/(m·s)]
@@ -293,21 +333,36 @@ scalar vectorFittingImpedanceFvPatchScalarField::calculateEffectiveImpedance() c
         const scalar r = residues_[i];
         const scalar expPdt = exp(p * dt);
 
-        // Contribution from each pole-residue pair
-        // Since p < 0, we have 0 < expPdt < 1, so (1 - expPdt) > 0
-        if (mag(1.0 - expPdt) > SMALL)
+        // Contribution from each pole-residue pair: rᵢ·[exp(pᵢ·Δt)-1]/pᵢ
+        // Use same formula as convolutionTerm in updateCoeffs() for consistency
+        scalar convolutionTerm;
+
+        if (mag(p * dt) < 1e-6)
         {
-            Z_eff_dyn += r * dt / (1.0 - expPdt);
+            // Taylor series: (exp(x)-1)/x ≈ 1 + x/2 + x²/6
+            const scalar pdt = p * dt;
+            convolutionTerm = dt * (1.0 + 0.5*pdt + pdt*pdt/6.0);
         }
         else
         {
-            // Very small dt or very negative pole: use approximation
-            Z_eff_dyn += r * dt;
+            // Standard formula: (exp(p·dt) - 1) / p
+            convolutionTerm = (expPdt - 1.0) / p;
         }
+
+        Z_eff_dyn += r * convolutionTerm;
     }
 
-    // Convert dynamic → kinematic impedance for incompressible solver
-    return Z_eff_dyn / rho_;
+    // Convert to kinematic units if needed
+    if (impedanceUnits_ == "kinematic")
+    {
+        // Parameters already in kinematic units - no conversion
+        return Z_eff_dyn;
+    }
+    else
+    {
+        // Convert dynamic → kinematic impedance for incompressible solver
+        return Z_eff_dyn / rho_;
+    }
 }
 
 
@@ -382,7 +437,17 @@ vectorFittingImpedanceFvPatchScalarField::valueBoundaryCoeffs
         }
 
         // Add to boundary source (distributed over patch area)
-        tcoeff.ref() += historicalSource * w / (patchArea_ + SMALL);
+        if (impedanceUnits_ == "kinematic")
+        {
+            // Parameters already in kinematic units - no conversion
+            tcoeff.ref() += historicalSource * w / (patchArea_ + SMALL);
+        }
+        else
+        {
+            // Convert dynamic → kinematic pressure (divide by rho_)
+            // to match the kinematic pressure field used by incompressible solvers
+            tcoeff.ref() += (historicalSource / rho_) * w / (patchArea_ + SMALL);
+        }
 
         return tcoeff;
     }
@@ -403,7 +468,7 @@ void vectorFittingImpedanceFvPatchScalarField::write(Ostream& os) const
     os.writeKeyword("phi") << phiName_ << token::END_STATEMENT << nl;
     os.writeKeyword("U") << UName_ << token::END_STATEMENT << nl;
     os.writeKeyword("couplingMode") << couplingMode_ << token::END_STATEMENT << nl;
-    os.writeKeyword("order") << order_ << token::END_STATEMENT << nl;
+    os.writeKeyword("nPoles") << nPoles_ << token::END_STATEMENT << nl;
 
     // Write vector fitting parameters
     os.writeKeyword("directTerm") << directTerm_ << token::END_STATEMENT << nl;
@@ -430,8 +495,9 @@ void vectorFittingImpedanceFvPatchScalarField::write(Ostream& os) const
         os.writeKeyword("residues") << residues_ << token::END_STATEMENT << nl;
     }
 
-    // Write optional density
+    // Write optional density and units mode
     os.writeKeyword("rho") << rho_ << token::END_STATEMENT << nl;
+    os.writeKeyword("impedanceUnits") << impedanceUnits_ << token::END_STATEMENT << nl;
 
     // Write the historical state for robust restarts
     // Critical for maintaining convolution continuity across restart

@@ -153,7 +153,8 @@ void modularWKPressureFvPatchScalarField::updateCoeffs()
         db().lookupObject<surfaceScalarField>(phiName_);
 
     // Sum the flux over the patch to get the flow rate Q [m³/s]
-    q0_ = sum(phi.boundaryField()[this->patch().index()]);
+    // IMPORTANT: Use gSum() for parallel runs to sum across all processors
+    q0_ = gSum(phi.boundaryField()[this->patch().index()]);
 
     // --- 2. Solve the Windkessel ODE for the new pressure ---
     // All units are kinematic - no rho conversion needed!
@@ -203,10 +204,21 @@ void modularWKPressureFvPatchScalarField::updateCoeffs()
     // Calculate new pressure [m²/s²] (kinematic)
     p1_ = (Q_source - Pgrad_part) / Pdenom;
 
-    // --- 3. Set the boundary condition value ---
+    // --- 3. Output diagnostic information (on master processor only) ---
+    if (Pstream::master() && db().time().timeIndex() % 100 == 0)
+    {
+        Info<< "modularWKPressure [" << patch().name() << "] t="
+            << currentTime << "s:"
+            << " Q=" << q0_*1e6 << " mL/s"
+            << " p=" << p1_*1060 << " Pa"  // Convert to dynamic for readability
+            << " (" << couplingMode_ << " mode, order=" << order_ << ")"
+            << endl;
+    }
+
+    // --- 4. Set the boundary condition value ---
     this->operator==(p1_);
 
-    // --- 4. Update historical values for the next timestep ---
+    // --- 5. Update historical values for the next timestep ---
     q_3_ = q_2_;
     q_2_ = q_1_;
     q_1_ = q0_;
