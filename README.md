@@ -138,9 +138,9 @@ In `system/controlDict`:
 libs ( "libmodularWKPressure.so" );
 ```
 
-#### Basic Setup (without stabilization)
+#### Alternative: Minimal Stabilisation
 
-For simple 2D cases or when backflow is not expected:
+For cases with mild backflow, lower damping may be used:
 
 In `0/p`:
 ```cpp
@@ -161,9 +161,15 @@ In `0/U`:
 ```cpp
 outlet
 {
-    type            zeroGradient;
+    type            stabilizedWindkesselVelocity;
+    phi             phi;
+    betaT           0.2;        // Lower tangential damping
+    betaN           0.0;
+    value           uniform (0 0 0);
 }
 ```
+
+> **Note:** Using `zeroGradient` for velocity is not recommended as it provides no backflow protection and can cause solver divergence.
 
 ---
 
@@ -184,7 +190,7 @@ where:
 
 | Direction | Parameter | Default | Rationale |
 |-----------|-----------|---------|-----------|
-| Tangential | βT | 0.2–0.3 | Suppresses vortices; doesn't affect P-Q relationship |
+| Tangential | βT | **0.3** | Suppresses vortices; doesn't affect P-Q relationship |
 | **Normal** | βN | **0.0** | Must be free to respond to Windkessel pressure |
 
 Setting βN > 0 constrains normal velocity toward zero during backflow, which **fights against** the pressure model trying to drive reverse flow.
