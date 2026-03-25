@@ -80,15 +80,22 @@ ls $FOAM_USER_LIBBIN/libmodularWKPressure.so
 
 #### Pressure Boundary (`modularWKPressure`)
 
-| Parameter | Description | Units (kinematic) |
-|-----------|-------------|-------------------|
-| `R` | Peripheral resistance | m⁻¹·s⁻¹ |
-| `C` | Compliance | m·s² |
-| `Z` | Characteristic impedance | m⁻¹·s⁻¹ |
-| `order` | BDF time discretization order (1-3) | - |
-| `phi` | Name of flux field | - |
-| `p0` | Initial capacitor pressure | m²/s² |
-| `value` | Initial uniform value | m²/s² |
+| Parameter | Description | Units (kinematic) | Required? |
+|-----------|-------------|-------------------|-----------|
+| `R` | Peripheral resistance | m⁻¹·s⁻¹ | Yes |
+| `C` | Compliance | m·s² | Yes |
+| `Z` | Characteristic impedance | m⁻¹·s⁻¹ | Yes |
+| `order` | BDF time discretization order (1-3) | - | Yes |
+| `p0` | Initial capacitor pressure | m²/s² | Yes |
+| `q_1` | Initial flow rate at t-Δt | m³/s | Yes |
+| `value` | Initial uniform value | m²/s² | Yes |
+| `phi` | Name of flux field | - | No (default: phi) |
+| `couplingMode` | `explicit` or `implicit` | - | No (default: explicit) |
+| `rho` | Fluid density (diagnostic output only) | kg/m³ | No (default: 1060) |
+| `p_1` | Pressure at t-2Δt (for order ≥ 2) | m²/s² | No (default: p0) |
+| `p_2` | Pressure at t-3Δt (for order 3) | m²/s² | No (default: p_1) |
+| `q_2` | Flow rate at t-2Δt (for order ≥ 2) | m³/s | No (default: q_1) |
+| `q_3` | Flow rate at t-3Δt (for order 3) | m³/s | No (default: q_2) |
 
 #### Velocity Boundary (`stabilizedWindkesselVelocity`)
 
@@ -96,11 +103,13 @@ ls $FOAM_USER_LIBBIN/libmodularWKPressure.so
 |-----------|-------------|-------|---------|
 | `betaT` | Tangential damping coefficient | 0.0–1.0 | 0.3 |
 | `betaN` | Normal damping coefficient | 0.0–1.0 | 0.0 |
+| `smoothingWidth` | Transition width for backflow detection | 0.0–1.0 | 0.1 |
 | `phi` | Name of flux field | - | phi |
 
 **Recommended settings:**
 - **βT = 0.3**: Suppresses tangential vortices during backflow
 - **βN = 0.0**: Preserves Windkessel pressure-flow coupling (keep at zero for RCR outlets)
+- **smoothingWidth = 0.1**: Smooth tanh ramp for backflow detection (recommended for LES; set to 0 for original hard Heaviside)
 
 ### Example Configuration
 
@@ -116,7 +125,8 @@ outlet
     R               1.11e6;     // [m⁻¹·s⁻¹] kinematic
     C               9.02e-7;    // [m·s²] kinematic
     Z               2.69e5;     // [m⁻¹·s⁻¹] kinematic
-    p0              0;
+    p0              0;          // Initial capacitor pressure [m²/s²]
+    q_1             0;          // Initial flow rate [m³/s]
     value           uniform 0;
 }
 ```
@@ -129,6 +139,7 @@ outlet
     phi             phi;
     betaT           0.3;        // Tangential damping (recommended)
     betaN           0.0;        // Normal: free for Windkessel coupling
+    smoothingWidth  0.1;        // Smooth ramp (recommended for LES; 0 = hard switch)
     value           uniform (0 0 0);
 }
 ```
@@ -153,6 +164,7 @@ outlet
     C               1e-6;
     Z               100;
     p0              0;
+    q_1             0;
     value           uniform 0;
 }
 ```
@@ -173,16 +185,104 @@ outlet
 
 ---
 
+## Critical fvSolution Requirements
+
+**The Windkessel boundary condition requires specific relaxation factor settings in `system/fvSolution` to function correctly with the PIMPLE algorithm.**
+
+### Why `pFinal = 1.0` and `UFinal = 1.0` Are Mandatory
+
+The Windkessel BC maintains internal ODE state variables (`p0_`, `p_1_`, `q_1_`, etc.) that evolve according to the RCR circuit equations. During each PIMPLE outer iteration, the BC calculates a target pressure based on its ODE state and the current flow rate, then applies this value directly to the boundary:
+
+```cpp
+// In modularWKPressure::updateCoeffs()
+this->operator==(p1_);  // Sets boundary pressure to calculated WK value
+```
+
+**The Problem with Under-Relaxation:**
+
+When `pFinal < 1.0`, OpenFOAM applies under-relaxation to the final corrector step:
+```
+p_applied = (1 - α) × p_old + α × p_calculated
+```
+
+This creates a **mismatch** between:
+1. What the Windkessel BC thinks the pressure is (its ODE state)
+2. What OpenFOAM actually applies to the field
+
+This mismatch **accumulates over cardiac cycles**, causing:
+- Progressive drift between BC state and actual field values
+- Corruption of the pressure-flow (P-Q) relationship
+- Non-physical pressure waveforms at outlets
+- Potential solver divergence
+
+### Required fvSolution Configuration
+
+```cpp
+relaxationFactors
+{
+    // pFinal/UFinal = 1.0 is critical for Windkessel BC coupling
+    fields
+    {
+        p               0.3;    // Under-relax intermediate correctors (OK)
+        pFinal          1.0;    // MUST be 1.0 for Windkessel outlets
+    }
+
+    equations
+    {
+        U               0.7;    // Under-relax intermediate correctors (OK)
+        UFinal          1.0;    // MUST be 1.0 for Windkessel velocity BC
+        "(k|epsilon|omega)"     0.7;
+        "(k|epsilon|omega)Final" 1.0;
+    }
+}
+```
+
+### What Each Setting Does
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| `p` | 0.3 | Stabilizes intermediate PIMPLE correctors |
+| `pFinal` | **1.0** | Ensures Windkessel pressure is applied exactly |
+| `U` | 0.7 | Stabilizes intermediate PIMPLE correctors |
+| `UFinal` | **1.0** | Ensures stabilized velocity BC is applied exactly |
+
+### Symptoms of Incorrect Settings
+
+If `pFinal` or `UFinal` are less than 1.0, you may observe:
+
+| Symptom | Cause |
+|---------|-------|
+| Pressure waveform drift over cycles | BC state diverges from applied field |
+| Non-physiological outlet pressures | P-Q coupling is corrupted |
+| Different results between runs | State mismatch amplifies numerical noise |
+| Visual differences vs. reference cases | Relaxation artifacts accumulate |
+
+### Verification
+
+To verify correct settings, check your `system/fvSolution`:
+
+```bash
+grep -A 10 "relaxationFactors" system/fvSolution
+```
+
+Ensure both `pFinal` and `UFinal` are set to `1.0` (or are absent, which defaults to the base value).
+
+---
+
 ## Two-Parameter Backflow Stabilization
 
 ### Tensor Formulation
 
-$$\mathbf{F} = H(-\phi) \left( \beta_N \mathbf{n}\mathbf{n}^T + \beta_T (\mathbf{I} - \mathbf{n}\mathbf{n}^T) \right)$$
+$$\mathbf{F} = \alpha(\phi) \left( \beta_N \mathbf{n}\mathbf{n}^T + \beta_T (\mathbf{I} - \mathbf{n}\mathbf{n}^T) \right)$$
 
 where:
 - **n** is the outward unit normal
 - **I** is the identity tensor
-- **H(−φ)** is the Heaviside backflow indicator
+- **α(φ)** is the backflow indicator function:
+  - `smoothingWidth = 0`: Hard Heaviside switch H(−φ) (original behaviour)
+  - `smoothingWidth > 0`: Smooth tanh ramp α = 0.5(1 − tanh(φ/w)) where w = smoothingWidth × mean|φ|
+
+The smooth ramp avoids discontinuous velocity changes at outlet faces during flow reversal. This is important for LES models (especially WALE) where the subgrid-scale stress is computed directly from velocity gradients -- a hard switch creates artificial gradient spikes that can destabilise the simulation.
 
 ### Why βN = 0 by Default?
 
@@ -313,7 +413,7 @@ To suppress non-physical re-entry at truncated outlets and improve convergence, 
 
 $$\mathbf{F} = H(-\phi) \left( \beta_N \mathbf{n}\mathbf{n}^T + \beta_T (\mathbf{I} - \mathbf{n}\mathbf{n}^T) \right)$$
 
-where **n** is the outward unit normal, **I** is the identity tensor, and *H(−φ)* is a Heaviside indicator based on the sign of the local face flux *φ* (with a small deadband around *φ = 0* to avoid switching due to numerical noise). The tangential coefficient *β_T* damps tangential velocity components during reverse flow, while *β_N* controls damping in the normal direction; for Windkessel outlets *β_N* was set to zero by default to avoid constraining the normal outflow that is determined by the pressure–flow model. The stabilisation was implemented through the `directionMixed` formulation so that the boundary contribution enters the momentum system consistently during linearisation, and no explicit patch overwrite (`evaluate()`) was performed during coefficient updates.
+where **n** is the outward unit normal, **I** is the identity tensor, and *α(−φ)* is a backflow indicator function. For RANS simulations a Heaviside indicator *H(−φ)* is used; for LES a smooth hyperbolic tangent ramp *α = 0.5(1 − tanh(φ/w))* is available (controlled by the `smoothingWidth` parameter), which avoids discontinuous velocity modifications that can generate spurious subgrid-scale stress in gradient-based SGS models such as WALE. The tangential coefficient *β_T* damps tangential velocity components during reverse flow, while *β_N* controls damping in the normal direction; for Windkessel outlets *β_N* was set to zero by default to avoid constraining the normal outflow that is determined by the pressure–flow model. The stabilisation was implemented through the `directionMixed` formulation so that the boundary contribution enters the momentum system consistently during linearisation, and no explicit patch overwrite (`evaluate()`) was performed during coefficient updates.
 
 ---
 
@@ -359,4 +459,4 @@ This implementation was inspired by and builds upon previous work:
 
 ---
 
-**January 2026** | OpenFOAM 12 | modularWKPressure
+**March 2026** | OpenFOAM 12 | modularWKPressure v1.1 (smooth backflow mask for LES)

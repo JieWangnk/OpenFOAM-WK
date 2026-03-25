@@ -36,6 +36,7 @@ Description
         betaN                 0.0;      // Normal damping (0-1)
         enableStabilization   true;
         dampingFactor         1.0;      // Additional damping multiplier
+        smoothingWidth        0.1;      // Smooth backflow ramp (0=hard switch)
         value                 uniform (0 0 0);
     }
     \endverbatim
@@ -49,6 +50,8 @@ Description
     - beta: Legacy parameter - if specified alone, sets betaT=beta, betaN=0
     - enableStabilization: Toggle stabilization (default: true)
     - dampingFactor: Additional damping multiplier (default: 1.0)
+    - smoothingWidth: Transition width for backflow detection (default: 0.1)
+      0 = hard switch (original), 0.05-0.2 = smooth ramp (recommended for LES)
 
 See also
     Foam::directionMixedFvPatchVectorField
@@ -94,6 +97,13 @@ class stabilizedWindkesselVelocityFvPatchVectorField
         //  Effective damping = beta * dampingFactor
         scalar dampingFactor_;
 
+        //- Smooth transition width for backflow detection (0-1)
+        //  Controls how gradually stabilization activates near zero flux.
+        //  0 = hard Heaviside switch (original, may cause issues with LES)
+        //  0.05-0.2 = smooth tanh ramp (recommended for LES)
+        //  Width is relative to mean patch flux magnitude.
+        scalar smoothingWidth_;
+
 
 public:
 
@@ -126,6 +136,19 @@ public:
             const stabilizedWindkesselVelocityFvPatchVectorField&,
             const DimensionedField<vector, volMesh>&
         );
+
+        //- Construct and return a clone
+        virtual tmp<fvPatchField<vector>> clone() const
+        {
+            return tmp<fvPatchField<vector>>
+            (
+                new stabilizedWindkesselVelocityFvPatchVectorField
+                (
+                    *this,
+                    internalField()
+                )
+            );
+        }
 
         //- Construct and return a clone setting internal field reference
         virtual tmp<fvPatchField<vector>> clone

@@ -50,7 +50,8 @@ stabilizedWindkesselVelocityFvPatchVectorField
     ),
     betaN_(dict.lookupOrDefault<scalar>("betaN", 0.0)),
     enableStabilization_(dict.lookupOrDefault<bool>("enableStabilization", true)),
-    dampingFactor_(dict.lookupOrDefault<scalar>("dampingFactor", 1.0))
+    dampingFactor_(dict.lookupOrDefault<scalar>("dampingFactor", 1.0)),
+    smoothingWidth_(dict.lookupOrDefault<scalar>("smoothingWidth", 0.1))
 {
     // Set initial field value
     fvPatchVectorField::operator=
@@ -85,7 +86,8 @@ stabilizedWindkesselVelocityFvPatchVectorField
     betaT_(ptf.betaT_),
     betaN_(ptf.betaN_),
     enableStabilization_(ptf.enableStabilization_),
-    dampingFactor_(ptf.dampingFactor_)
+    dampingFactor_(ptf.dampingFactor_),
+    smoothingWidth_(ptf.smoothingWidth_)
 {}
 
 
@@ -101,7 +103,8 @@ stabilizedWindkesselVelocityFvPatchVectorField
     betaT_(swvf.betaT_),
     betaN_(swvf.betaN_),
     enableStabilization_(swvf.enableStabilization_),
-    dampingFactor_(swvf.dampingFactor_)
+    dampingFactor_(swvf.dampingFactor_),
+    smoothingWidth_(swvf.smoothingWidth_)
 {}
 
 
@@ -157,9 +160,29 @@ void Foam::stabilizedWindkesselVelocityFvPatchVectorField::updateCoeffs()
         const scalar effBetaT = min(max(betaT_ * dampingFactor_, scalar(0)), scalar(1));
         const scalar effBetaN = min(max(betaN_ * dampingFactor_, scalar(0)), scalar(1));
 
-        // Backflow mask: 1 if phi < -SMALL (backflow), 0 otherwise
-        // Using SMALL margin to avoid on/off chattering near zero flux
-        const scalarField backflowMask(pos0(-phip - SMALL));
+        // Backflow detection with smooth or hard transition
+        scalarField backflowMask(phip.size(), 0.0);
+
+        if (smoothingWidth_ > SMALL)
+        {
+            // Smooth tanh ramp: continuously differentiable transition
+            // Prevents artificial velocity gradients that destabilise LES models
+            // mask -> 0 for outflow, mask -> 1 for backflow, smooth near zero
+            const scalar phiRef =
+                gSum(mag(phip)) / max(scalar(patch().size()), SMALL);
+            const scalar sw = max(smoothingWidth_ * phiRef, SMALL);
+
+            forAll(backflowMask, facei)
+            {
+                backflowMask[facei] =
+                    scalar(0.5) * (scalar(1) - Foam::tanh(phip[facei] / sw));
+            }
+        }
+        else
+        {
+            // Original hard Heaviside switch (backward compatible)
+            backflowMask = pos0(-phip - SMALL);
+        }
 
         // Normal vector field and projection tensors
         const vectorField n(patch().nf());
@@ -194,6 +217,7 @@ void Foam::stabilizedWindkesselVelocityFvPatchVectorField::write(Ostream& os) co
 
     writeEntry(os, "enableStabilization", enableStabilization_);
     writeEntry(os, "dampingFactor", dampingFactor_);
+    writeEntry(os, "smoothingWidth", smoothingWidth_);
     writeEntry(os, "value", *this);
 }
 

@@ -95,6 +95,9 @@ class modularWKPressureFvPatchScalarField
         //- Coupling mode: "explicit" (default) or "implicit"
         word couplingMode_;
 
+        //- Fluid density [kg/m³] (for diagnostic output only)
+        scalar rho_;
+
         //- Windkessel parameters (KINEMATIC units - no conversion needed)
         //  R [m⁻¹·s⁻¹] = resistance (kinematic)
         //  C [m·s²] = compliance (kinematic)

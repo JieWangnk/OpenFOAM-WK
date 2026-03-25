@@ -10,13 +10,13 @@ Description
 
     All parameters are in kinematic units (consistent with OpenFOAM p field):
     - p, p0, p_1: [m²/s²] kinematic pressure
-    - R, Z: [s/m] kinematic resistance
-    - C: [m] kinematic compliance
+    - R, Z: [m⁻¹·s⁻¹] kinematic resistance (= [Pa·s/m³] / [kg/m³])
+    - C: [m·s²] kinematic compliance (= [m³/Pa] × [kg/m³])
     - Q: [m³/s] volumetric flow rate
 
     Conversion from dynamic (SI) units:
-    - R_kin = R_dyn / rho  (Pa·s/m³ → s/m)
-    - C_kin = C_dyn * rho  (m³/Pa → m)
+    - R_kin = R_dyn / rho  (Pa·s/m³ → m⁻¹·s⁻¹)
+    - C_kin = C_dyn * rho  (m³/Pa → m·s²)
     - p_kin = p_dyn / rho  (Pa → m²/s²)
 
 ---------------------------------------------------------------------------*/
@@ -43,6 +43,8 @@ modularWKPressureFvPatchScalarField::modularWKPressureFvPatchScalarField
     UName_(dict.lookupOrDefault<word>("U", "U")),
     order_(readLabel(dict.lookup("order"))),
     couplingMode_(dict.lookupOrDefault<word>("couplingMode", "explicit")),
+    // Fluid density for diagnostic output only
+    rho_(dict.lookupOrDefault<scalar>("rho", 1060.0)),
     // All parameters read directly - already in kinematic units
     R_(readScalar(dict.lookup("R"))),
     C_(readScalar(dict.lookup("C"))),
@@ -58,6 +60,14 @@ modularWKPressureFvPatchScalarField::modularWKPressureFvPatchScalarField
     lastUpdateTime_(-GREAT),
     patchArea_(gSum(p.magSf()))
 {
+    // Validate order
+    if (order_ < 1 || order_ > 3)
+    {
+        FatalErrorInFunction
+            << "order must be 1, 2, or 3, not " << order_
+            << exit(FatalError);
+    }
+
     // Validate coupling mode
     if (couplingMode_ != "explicit" && couplingMode_ != "implicit")
     {
@@ -67,8 +77,11 @@ modularWKPressureFvPatchScalarField::modularWKPressureFvPatchScalarField
             << exit(FatalError);
     }
 
-    // Set the initial pressure value of the patch from p0 (already kinematic)
-    fixedValueFvPatchScalarField::operator==(p0_);
+    // If no "value" entry was provided in the dict, initialize from p0
+    if (!dict.found("value"))
+    {
+        fixedValueFvPatchScalarField::operator==(p0_);
+    }
 }
 
 
@@ -85,6 +98,7 @@ modularWKPressureFvPatchScalarField::modularWKPressureFvPatchScalarField
     UName_(ptf.UName_),
     order_(ptf.order_),
     couplingMode_(ptf.couplingMode_),
+    rho_(ptf.rho_),
     R_(ptf.R_),
     C_(ptf.C_),
     Z_(ptf.Z_),
@@ -111,6 +125,7 @@ modularWKPressureFvPatchScalarField::modularWKPressureFvPatchScalarField
     UName_(fvmpsf.UName_),
     order_(fvmpsf.order_),
     couplingMode_(fvmpsf.couplingMode_),
+    rho_(fvmpsf.rho_),
     R_(fvmpsf.R_),
     C_(fvmpsf.C_),
     Z_(fvmpsf.Z_),
@@ -210,7 +225,7 @@ void modularWKPressureFvPatchScalarField::updateCoeffs()
         Info<< "modularWKPressure [" << patch().name() << "] t="
             << currentTime << "s:"
             << " Q=" << q0_*1e6 << " mL/s"
-            << " p=" << p1_*1060 << " Pa"  // Convert to dynamic for readability
+            << " p=" << p1_*rho_ << " Pa"
             << " (" << couplingMode_ << " mode, order=" << order_ << ")"
             << endl;
     }
@@ -313,26 +328,40 @@ tmp<Field<scalar>> modularWKPressureFvPatchScalarField::valueBoundaryCoeffs
         scalar historicalSource = 0.0;
 
         // Historical contribution (all kinematic, no rho conversion)
+        //
+        // From BDF-k discretization of the Windkessel ODE:
+        //   P^{n+1}·(α/dt + 1/(RC)) = hist_P + hist_Q + Q^{n+1}_terms
+        //
+        // hist_P: historical pressure terms moved to RHS
+        // hist_Q: historical Z·dQ/dt terms (non-Q^{n+1} part)
+        //
+        // Note: The Q^{n+1}-dependent terms go into the diagonal
+        //       via calculateImpedance() / valueInternalCoeffs()
         switch (order_)
         {
             case 1:
-                historicalSource = -Z_ * q_1_ / dt - p0_ / dt;
+                // hist = P^n/dt - Z·Q^n/dt
+                historicalSource = p0_ / dt - Z_ * q_1_ / dt;
                 break;
             case 2:
-                historicalSource = -Z_ * (-2.0*q_1_ + 0.5*q_2_) / dt
-                                  + (-2.0*p0_ + 0.5*p_1_) / dt;
+                // hist = (2P^n - 0.5P^{n-1})/dt + Z·(-2Q^n + 0.5Q^{n-1})/dt
+                historicalSource = (2.0*p0_ - 0.5*p_1_) / dt
+                                  + Z_ * (-2.0*q_1_ + 0.5*q_2_) / dt;
                 break;
             case 3:
-                historicalSource = -Z_ * (-3.0*q_1_ + 1.5*q_2_ - (1.0/3.0)*q_3_) / dt
-                                  + (-3.0*p0_ + 1.5*p_1_ - (1.0/3.0)*p_2_) / dt;
+                // hist = (3P^n - 1.5P^{n-1} + 1/3P^{n-2})/dt
+                //      + Z·(-3Q^n + 1.5Q^{n-1} - 1/3Q^{n-2})/dt
+                historicalSource = (3.0*p0_ - 1.5*p_1_ + (1.0/3.0)*p_2_) / dt
+                                  + Z_ * (-3.0*q_1_ + 1.5*q_2_ - (1.0/3.0)*q_3_) / dt;
                 break;
             default:
-                historicalSource = -Z_ * q_1_ / dt - p0_ / dt;
+                historicalSource = p0_ / dt - Z_ * q_1_ / dt;
                 break;
         }
 
-        // Compliance contribution: Q/C (already kinematic)
-        const scalar complianceSource = q0_ / (C_ + SMALL);
+        // Compliance contribution: Q/C·(1 + Z/R) (already kinematic)
+        // This is the non-diagonal part of the Q^{n+1} source term
+        const scalar complianceSource = (q0_ / (C_ + SMALL)) * (1.0 + Z_ / R_);
 
         // Add to boundary source
         tcoeff.ref() += (historicalSource + complianceSource) * w / (patchArea_ + SMALL);
@@ -355,6 +384,8 @@ void modularWKPressureFvPatchScalarField::write(Ostream& os) const
     os.writeKeyword("couplingMode") << couplingMode_ << token::END_STATEMENT << nl;
     os.writeKeyword("order") << order_ << token::END_STATEMENT << nl;
 
+    os.writeKeyword("rho") << rho_ << token::END_STATEMENT << nl;
+
     // Write kinematic Windkessel parameters
     os.writeKeyword("R") << R_ << token::END_STATEMENT << nl;
     os.writeKeyword("C") << C_ << token::END_STATEMENT << nl;
@@ -370,8 +401,6 @@ void modularWKPressureFvPatchScalarField::write(Ostream& os) const
 }
 
 } // End namespace Foam
-
-#include "addToRunTimeSelectionTable.H"
 
 namespace Foam
 {
