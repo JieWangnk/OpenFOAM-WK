@@ -1,0 +1,30 @@
+#!/bin/sh
+cd ${0%/*} || exit 1
+
+. $WM_PROJECT_DIR/bin/tools/RunFunctions
+
+echo "=== CoA_test: Coarctation of Aorta with Windkessel Outlets ==="
+echo ""
+echo "NOTE: This tutorial requires a pre-generated mesh."
+echo "The mesh is NOT included in the repository due to size constraints."
+echo ""
+echo "To generate the mesh, use AortaCFD-app:"
+echo "  python run_patient.py <case_id> --steps case,mesh"
+echo "  cp -r output/<case_id>/run_xxx/openfoam/constant/polyMesh constant/"
+echo ""
+echo "Or provide your own aortic mesh with patches:"
+echo "  inlet, outlet1, outlet2, outlet3, outlet4, wall_aorta"
+echo ""
+
+if [ ! -d "constant/polyMesh" ]; then
+    echo "ERROR: No mesh found in constant/polyMesh/"
+    echo "Please generate or copy a mesh first (see above)."
+    exit 1
+fi
+
+application="$(getApplication)"
+runApplication $application
+
+echo ""
+echo "Done. View results in ParaView:"
+echo "  paraview case.foam"

@@ -26,20 +26,27 @@ boundaryField
     outlet
     {
         type            modularWKPressure;
-        phi             phi;    // Name of the flux field
-        order           2;      // Finite difference order (1, 2, or 3)
-        R               13330;  // Resistance
-        C               1e-5;   // Compliance
-        Z               0;      // Impedance (set to 0 for a standard 2-element WK model)
-    
-        // Initial historical values for a stable start
-        p0              10666;  // Initial pressure at the outlet [Pa]
-        p_1             10666;  // Pressure at t=-dt [Pa]
-        q_1             0;      // Flow at t=-dt [m3/s]
-        q_2             0;      // Flow at t=-2*dt [m3/s]
-        q_3             0;      // Flow at t=-3*dt [m3/s]
-    
-        value           uniform 10666; // Initial value for the patch
+        phi             phi;
+        order           2;              // BDF2 time discretisation
+
+        // Windkessel parameters in KINEMATIC units (consistent with OpenFOAM p field)
+        // Conversion: R_kin = R_dyn/rho, C_kin = C_dyn*rho, p_kin = p_dyn/rho
+        // Using rho = 1060 kg/m^3:
+        //   R_dyn = 13330 Pa.s/m^3  -> R_kin = 13330/1060 = 12.575 m^-1.s^-1
+        //   C_dyn = 1e-5 m^3/Pa     -> C_kin = 1e-5*1060  = 0.0106 m.s^2
+        //   p_dyn = 10666 Pa         -> p_kin = 10666/1060  = 10.06 m^2/s^2
+        R               12.575;         // Distal resistance [m^-1.s^-1]
+        C               0.0106;         // Compliance [m.s^2]
+        Z               0;              // Impedance (0 for 2-element WK)
+
+        // Initial state (kinematic)
+        p0              10.06;          // ~80 mmHg [m^2/s^2]
+        p_1             10.06;
+        q_1             0;
+        q_2             0;
+        q_3             0;
+
+        value           uniform 10.06;
     }
     upperWall
     {

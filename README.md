@@ -101,13 +101,13 @@ ls $FOAM_USER_LIBBIN/libmodularWKPressure.so
 
 | Parameter | Description | Range | Default |
 |-----------|-------------|-------|---------|
-| `betaT` | Tangential damping coefficient | 0.0–1.0 | 0.3 |
+| `betaT` | Tangential damping coefficient | 0.0–1.0 | 0.2 |
 | `betaN` | Normal damping coefficient | 0.0–1.0 | 0.0 |
 | `smoothingWidth` | Transition width for backflow detection | 0.0–1.0 | 0.1 |
 | `phi` | Name of flux field | - | phi |
 
 **Recommended settings:**
-- **βT = 0.3**: Suppresses tangential vortices during backflow
+- **βT = 0.2**: Suppresses tangential vortices during backflow (code default; increase to 0.3 for severe backflow)
 - **βN = 0.0**: Preserves Windkessel pressure-flow coupling (keep at zero for RCR outlets)
 - **smoothingWidth = 0.1**: Smooth tanh ramp for backflow detection (recommended for LES; set to 0 for original hard Heaviside)
 
@@ -137,7 +137,7 @@ outlet
 {
     type            stabilizedWindkesselVelocity;
     phi             phi;
-    betaT           0.3;        // Tangential damping (recommended)
+    betaT           0.2;        // Tangential damping (default; 0.3 for severe backflow)
     betaN           0.0;        // Normal: free for Windkessel coupling
     smoothingWidth  0.1;        // Smooth ramp (recommended for LES; 0 = hard switch)
     value           uniform (0 0 0);
@@ -175,7 +175,7 @@ outlet
 {
     type            stabilizedWindkesselVelocity;
     phi             phi;
-    betaT           0.2;        // Lower tangential damping
+    betaT           0.1;        // Mild damping for cases with minor backflow
     betaN           0.0;
     value           uniform (0 0 0);
 }

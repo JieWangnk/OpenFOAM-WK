@@ -1,10 +1,10 @@
-/*--------------------------------*- C++ -*----------------------------------*\\
+/*--------------------------------*- C++ -*----------------------------------*\
   =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     | Website:  https://openfoam.org
     \\  /    A nd           | Version:  12
      \\/     M anipulation  |
-\\*---------------------------------------------------------------------------*/
+\*---------------------------------------------------------------------------*/
 FoamFile
 {
     version     2.0;
@@ -16,95 +16,112 @@ FoamFile
 
 dimensions      [0 2 -2 0 0 0 0];
 
-internalField   uniform 0;
+internalField   uniform 10.06;
 
 boundaryField
 {
-    // The inlet pressure is standardized here
     inlet
     {
         type            zeroGradient;
     }
 
-    // The outlets are created dynamically based on the JSON settings
-    outlet1
+    // 3-Element Windkessel (RCR) on each outlet
+    // All values in KINEMATIC units:
+    //   R_kin = R_dyn / rho [m^-1.s^-1]
+    //   C_kin = C_dyn * rho [m.s^2]
+    //   p_kin = p_dyn / rho [m^2/s^2]
+    // With rho = 1060 kg/m^3
+    //
+    // Example physiological values (placeholder — replace with
+    // patient-specific values computed via Murray's law):
+    //   MAP = 93.3 mmHg = 12443 Pa -> p_kin = 11.74 m^2/s^2
+    //   80 mmHg diastolic = 10666 Pa -> p_kin = 10.06 m^2/s^2
+
+    outlet1     // Descending aorta (largest outlet)
     {
-        // OpenFOAM 12 modularWKPressure boundary condition
         type            modularWKPressure;
         phi             phi;
-        order           2;
-        R               1000;
-        C               1e-06;
-        Z               100;
-        
-        // Initial historical values for a stable start
-        p0              10666;  // Initial pressure at the outlet [Pa]
-        p_1             10666;  // Pressure at t=-dt [Pa]
-        q_1             0;      // Flow at t=-dt [m3/s]
-        q_2             0;      // Flow at t=-2*dt [m3/s]
-        q_3             0;      // Flow at t=-3*dt [m3/s]
-        
-        value           uniform 0;
-    }
-    outlet2
-    {
-        // OpenFOAM 12 modularWKPressure boundary condition
-        type            modularWKPressure;
-        phi             phi;
-        order           2;
-        R               1000;
-        C               1e-06;
-        Z               100;
-        
-        // Initial historical values for a stable start
-        p0              10666;  // Initial pressure at the outlet [Pa]
-        p_1             10666;  // Pressure at t=-dt [Pa]
-        q_1             0;      // Flow at t=-dt [m3/s]
-        q_2             0;      // Flow at t=-2*dt [m3/s]
-        q_3             0;      // Flow at t=-3*dt [m3/s]
-        
-        value           uniform 0;
-    }
-    outlet3
-    {
-        // OpenFOAM 12 modularWKPressure boundary condition
-        type            modularWKPressure;
-        phi             phi;
-        order           2;
-        R               1000;
-        C               1e-06;
-        Z               100;
-        
-        // Initial historical values for a stable start
-        p0              10666;  // Initial pressure at the outlet [Pa]
-        p_1             10666;  // Pressure at t=-dt [Pa]
-        q_1             0;      // Flow at t=-dt [m3/s]
-        q_2             0;      // Flow at t=-2*dt [m3/s]
-        q_3             0;      // Flow at t=-3*dt [m3/s]
-        
-        value           uniform 0;
-    }
-    outlet4
-    {
-        // OpenFOAM 12 modularWKPressure boundary condition
-        type            modularWKPressure;
-        phi             phi;
-        order           2;
-        R               1000;
-        C               1e-06;
-        Z               100;
-        
-        // Initial historical values for a stable start
-        p0              10666;  // Initial pressure at the outlet [Pa]
-        p_1             10666;  // Pressure at t=-dt [Pa]
-        q_1             0;      // Flow at t=-dt [m3/s]
-        q_2             0;      // Flow at t=-2*dt [m3/s]
-        q_3             0;      // Flow at t=-3*dt [m3/s]
-        
-        value           uniform 0;
+        U               U;
+        couplingMode    implicit;
+        order           3;
+
+        // Kinematic Windkessel parameters
+        R               268765.33;      // [m^-1.s^-1]
+        C               3.72e-6;        // [m.s^2]
+        Z               268936.63;      // [m^-1.s^-1]
+
+        p0              10.06;          // ~80 mmHg [m^2/s^2]
+        p_1             10.06;
+        q_1             0;
+        q_2             0;
+        q_3             0;
+
+        value           uniform 10.06;
     }
 
-    // The wall condition is standardized here
+    outlet2     // Brachiocephalic artery
+    {
+        type            modularWKPressure;
+        phi             phi;
+        U               U;
+        couplingMode    implicit;
+        order           3;
+
+        R               1108115.88;     // Higher R = smaller outlet
+        C               9.024e-7;
+        Z               268937.17;
+
+        p0              10.06;
+        p_1             10.06;
+        q_1             0;
+        q_2             0;
+        q_3             0;
+
+        value           uniform 10.06;
+    }
+
+    outlet3     // Left common carotid
+    {
+        type            modularWKPressure;
+        phi             phi;
+        U               U;
+        couplingMode    implicit;
+        order           3;
+
+        R               1505282.46;
+        C               6.643e-7;
+        Z               430432.62;
+
+        p0              10.06;
+        p_1             10.06;
+        q_1             0;
+        q_2             0;
+        q_3             0;
+
+        value           uniform 10.06;
+    }
+
+    outlet4     // Left subclavian
+    {
+        type            modularWKPressure;
+        phi             phi;
+        U               U;
+        couplingMode    implicit;
+        order           3;
+
+        R               1845211.52;
+        C               5.419e-7;
+        Z               584310.42;
+
+        p0              10.06;
+        p_1             10.06;
+        q_1             0;
+        q_2             0;
+        q_3             0;
+
+        value           uniform 10.06;
+    }
+
     wall_aorta
     {
         type            zeroGradient;

@@ -1,198 +1,101 @@
-# CoA Test Case: Coarctation of Aorta with Stabilized Windkessel BCs
+# CoA Test Case: Coarctation of Aorta with Windkessel Outlets
 
-This tutorial demonstrates the stabilized Windkessel boundary condition on a realistic coarctation of aorta (CoA) geometry with multiple outlets and complex pulsatile flow patterns.
+This tutorial demonstrates the 3-element Windkessel (RCR) pressure boundary condition with two-parameter backflow stabilisation on a patient-specific coarctation of aorta (CoA) geometry.
 
-## Overview
+## Prerequisites
 
-This case showcases:
-- Complex 3D patient-specific arterial geometry
-- Multiple outlet boundaries with Windkessel BCs
-- Backflow stabilization preventing numerical instability
-- Pulsatile flow with time-varying inlet conditions
+1. Compiled `libmodularWKPressure.so` (see main README)
+2. OpenFOAM 12 (Foundation)
+3. A pre-generated aortic mesh with patches: `inlet`, `outlet1`-`outlet4`, `wall_aorta`
 
-## Problem Description
+**Note:** The mesh is NOT included due to size. Generate it using AortaCFD-app:
 
-### Geometry
-- Coarctation of aorta (narrowed aortic arch)
-- 4 outlet branches (ascending aorta, brachiocephalic, left carotid, left subclavian)
-- Complex flow patterns with potential backflow
+```bash
+# Using AortaCFD-app:
+python run_patient.py <case_id> --steps case,mesh
+cp -r output/<case_id>/run_xxx/openfoam/constant/polyMesh tutorials/CoA_test/constant/
 
-### Flow Conditions
-- Pulsatile inlet flow (cardiac cycle)
-- Reynolds number: ~2000-4000
-- Multiple outlets with different flow phases
-- Natural backflow during diastolic phase
+# Or provide any aortic mesh with the correct patch names.
+```
 
-### Why Stabilization is Needed
-Without stabilization, this case exhibits:
-- Timestep collapse to 1e-10 seconds
-- Continuity errors > 1e15
-- Simulation divergence
-- Inability to complete cardiac cycle
+## Boundary Conditions
 
-## Case Setup
+### Pressure (`0/p`): modularWKPressure
 
-### Boundary Conditions
+All parameters are in **kinematic units** (divided by rho = 1060 kg/m^3):
 
-#### Pressure (0/p)
-All outlets use `modularWKPressure` with identical parameters:
 ```cpp
-outlet1
+outlet1     // Descending aorta (largest outlet)
 {
     type            modularWKPressure;
     phi             phi;
-    order           2;
-    R               1000;
-    C               1e-06;
-    Z               100;
-    p0              10666;
-    value           uniform 10666;
+    U               U;
+    couplingMode    implicit;
+    order           3;              // BDF3 for accuracy
+    R               268765.33;      // Distal resistance [m^-1.s^-1]
+    C               3.72e-6;        // Compliance [m.s^2]
+    Z               268936.63;      // Characteristic impedance [m^-1.s^-1]
+    p0              10.06;          // ~80 mmHg diastolic [m^2/s^2]
+    value           uniform 10.06;
 }
 ```
 
-#### Velocity (0/U)
-All outlets use `stabilizedWindkesselVelocity` with stabilization:
+Each outlet has different R/C/Z values based on Murray's law flow distribution. Smaller outlets have higher resistance and lower compliance.
+
+### Velocity (`0/U`): stabilizedWindkesselVelocity
+
+Two-parameter directional stabilisation:
+
 ```cpp
 outlet1
 {
-    type                stabilizedWindkesselVelocity;
-    beta                1.0;
-    enableStabilization true;
+    type                  stabilizedWindkesselVelocity;
+    phi                   phi;
+    betaT                 0.2;    // Tangential damping (suppresses backflow vortices)
+    betaN                 0.0;    // Normal: free for Windkessel pressure-flow coupling
+    enableStabilization   true;
+    value                 uniform (0 0 0);
 }
 ```
 
-#### Inlet (0/U)
-Time-varying mapped boundary condition:
+- **betaT = 0.2**: Damps tangential velocity during backflow. Increase to 0.3 for severe cases.
+- **betaN = 0.0**: Keeps normal velocity free to respond to the Windkessel pressure model.
+
+## Critical fvSolution Requirement
+
+The Windkessel BC requires `pFinal = 1.0` and `UFinal = 1.0`:
+
 ```cpp
-inlet
+relaxationFactors
 {
-    type            timeVaryingMappedFixedValue;
-    offset          (0 0 0);
-    setAverage      false;
+    fields    { p 0.3; pFinal 1.0; }
+    equations { U 0.7; UFinal 1.0; }
 }
 ```
 
-### Solver Configuration
+Under-relaxing the final PIMPLE iteration corrupts the Windkessel pressure-flow coupling. See the main README for details.
 
-Optimized PIMPLE settings for dynamic boundaries:
-```cpp
-PIMPLE
-{
-    nOuterCorrectors 40;
-    nCorrectors     2;
-    nNonOrthogonalCorrectors 1;
-    
-    residualControl
-    {
-        p               0.01;
-        U               0.001;
-    }
-    
-    relaxationFactors
-    {
-        fields
-        {
-            p       0.3;
-        }
-        equations
-        {
-            U       0.7;
-        }
-    }
-}
-```
+## Running
 
-## Running the Case
-
-### Prerequisites
-1. Compiled `libmodularWKPressure.so` with stabilization
-2. OpenFOAM v12 environment
-3. Mesh files in `constant/polyMesh/`
-
-### Execution
 ```bash
-# Clean previous results
-./Allclean
-
-# Run the case
-foamRun -solver incompressibleFluid
+source /opt/openfoam12/etc/bashrc
+./Allrun
 ```
 
-### Monitoring
-Use the provided monitoring script:
-```bash
-./monitor.sh
-```
+## Expected Behaviour
 
-Or manually check progress:
-```bash
-tail -f logs/log.solver.final | grep -E "(Time =|deltaT|Courant)"
-```
+| Metric | Without Stabilisation | With Stabilisation |
+|--------|----------------------|---------------------|
+| Timestep | Collapses to 1e-10 | Stable at ~1e-4 |
+| Continuity error | >1e15 | <1e-9 |
+| Completion | Diverges | Completes |
 
-## Expected Results
+## Files
 
-### Without Stabilization (Historical)
-- Timestep: ~1e-10 seconds (collapsed)
-- Status: Diverged after few timesteps
-- Error: Massive continuity errors
-
-### With Stabilization
-- Timestep: ~1e-4 seconds (stable)
-- Progress: ~3-4 hours for 0.5s simulation
-- Courant: Max ~0.8 (stable)
-- Status: Completes successfully
-
-## Performance Metrics
-
-| Metric | Without Stabilization | With Stabilization | Improvement |
-|--------|----------------------|---------------------|-------------|
-| Timestep | 1e-10 s | 1e-4 s | 14,000x |
-| Continuity Error | >1e15 | <1e-9 | >1e24 |
-| Completion | Never | 3-4 hours | ∞ |
-| Stability | Diverged | Stable | Complete |
-
-## Key Files
-
-- `0/p`: Pressure field with Windkessel BCs
-- `0/U`: Velocity field with stabilized BCs
-- `system/controlDict`: Simulation control
-- `system/fvSolution`: Solver settings optimized for Windkessel
-- `constant/transportProperties`: Fluid properties (blood: ρ=1060, ν≈3.8e-6)
-- `constant/boundaryData/inlet/`: Time-varying inlet velocity data
-
-## Troubleshooting
-
-### If simulation still diverges:
-1. Check mesh quality near outlets
-2. Increase beta parameter to 1.5
-3. Reduce initial timestep
-4. Check boundary data integrity
-
-### If timestep too small:
-1. Verify stabilization is enabled
-2. Check library compilation
-3. Increase damping factor in source code
-4. Review solver tolerances
-
-## Physical Interpretation
-
-The stabilization prevents numerical instability while preserving physical flow behavior:
-- Natural backflow is maintained but damped
-- Pressure waveforms remain physiologically realistic
-- Flow patterns consistent with clinical observations
-- Energy conservation maintained
-
-## Citation
-
-If you use this case in your research, please cite:
-- The backflow stabilization implementation
-- Esmaily Moghadam et al. (2011) stabilization theory
-- Original CoA geometry source (if applicable)
-
-## Support
-
-For issues with this case:
-1. Check the main repository README
-2. Verify OpenFOAM version compatibility
-3. Ensure all dependencies are compiled
-4. Review solver log for specific error messages
+| File | Purpose |
+|------|---------|
+| `0/p` | Windkessel pressure BC (kinematic units, BDF3, implicit coupling) |
+| `0/U` | Stabilised velocity BC (betaT=0.2, betaN=0.0) |
+| `system/controlDict` | Solver control (loads libmodularWKPressure.so) |
+| `system/fvSolution` | PIMPLE settings (pFinal=1.0 required) |
+| `constant/boundaryData/inlet/` | Time-varying inlet velocity data |

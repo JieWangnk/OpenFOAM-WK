@@ -45,7 +45,14 @@ boundaryField
 
     outlet
     {
-        type            zeroGradient;
+        // Backflow-stabilised velocity BC (recommended over zeroGradient)
+        type                  stabilizedWindkesselVelocity;
+        phi                   phi;
+        betaT                 0.2;          // Tangential damping during backflow
+        betaN                 0.0;          // Normal: free for Windkessel coupling
+        smoothingWidth        0.1;          // Smooth tanh ramp (recommended for LES)
+        enableStabilization   true;
+        value                 uniform (0 0 0);
     }
 
     upperWall
